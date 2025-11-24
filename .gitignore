@@ -1,0 +1,59 @@
+# Environment files
+.env
+.env.local
+*.env
+!.env.example
+!.env.dev
+
+# Go
+gateway/bin/
+gateway/vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# Next.js / Node.js
+web/node_modules/
+web/.next/
+web/out/
+web/build/
+web/dist/
+web/.cache/
+web/.vercel
+web/.DS_Store
+web/*.log
+web/npm-debug.log*
+web/yarn-debug.log*
+web/yarn-error.log*
+
+# Session recordings
+gateway/recordings/
+*.cast
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Secrets and credentials
+*.pem
+*.key
+*.crt
+secrets/
+credentials/

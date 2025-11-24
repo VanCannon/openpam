@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: openpam-postgres
+    environment:
+      POSTGRES_DB: openpam
+      POSTGRES_USER: openpam
+      POSTGRES_PASSWORD: openpam
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openpam"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: openpam-vault
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: dev-root-token
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Uncomment to run guacd for RDP support
+  # guacd:
+  #   image: guacamole/guacd:1.5.4
+  #   container_name: openpam-guacd
+  #   ports:
+  #     - "4822:4822"
+
+volumes:
+  postgres_data:
