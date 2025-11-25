@@ -112,3 +112,16 @@ func (r *Recorder) GetRecordingPath(sessionID string) (string, error) {
 
 	return session.FilePath, nil
 }
+
+// GetWriter returns the writer for an active recording session
+func (r *Recorder) GetWriter(sessionID string) io.Writer {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	session, exists := r.sessions[sessionID]
+	if !exists {
+		return nil
+	}
+
+	return session.File
+}

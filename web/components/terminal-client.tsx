@@ -258,11 +258,13 @@ export default function TerminalClient({ wsUrl, onClose }: TerminalProps) {
         ws.onclose = () => {
           if (isDisposed.current) return
           setConnectionStatus('disconnected')
-          term.writeln('\r\n\x1b[33mConnection closed\x1b[0m\r\n')
-          if (onClose) {
-            // Don't call onClose immediately to let user see the message
-            // onClose()
-          }
+          term.writeln('\r\n\x1b[33mSession ended. Redirecting to dashboard...\x1b[0m\r\n')
+          // Redirect to dashboard after 2 seconds
+          setTimeout(() => {
+            if (onClose) {
+              onClose()
+            }
+          }, 2000)
         }
 
       } catch (err) {
@@ -297,7 +299,20 @@ export default function TerminalClient({ wsUrl, onClose }: TerminalProps) {
   }, [wsUrl, onClose])
 
   return (
-    <div className="flex flex-col h-full bg-[#1e1e1e]">
+    <div className="flex flex-col h-full bg-[#1e1e1e] relative">
+      {/* Recording Indicator - Positioned absolutely in top-right */}
+      {connectionStatus === 'connected' && (
+        <div className="absolute top-16 right-4 z-50 flex flex-col items-center gap-1">
+          <div className="relative">
+            {/* Pulsing animation */}
+            <div className="absolute inset-0 w-3 h-3 bg-red-500 rounded-full animate-ping opacity-75"></div>
+            {/* Solid dot */}
+            <div className="relative w-3 h-3 bg-red-500 rounded-full"></div>
+          </div>
+          <span className="text-xs font-semibold text-red-500 tracking-wide">RECORDING</span>
+        </div>
+      )}
+
       <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-[#3e3e3e]">
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-500' :
@@ -313,7 +328,13 @@ export default function TerminalClient({ wsUrl, onClose }: TerminalProps) {
           </span>
         </div>
         <button
-          onClick={onClose}
+          onClick={() => {
+            // Close WebSocket gracefully before calling onClose
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.close(1000, 'User closed connection')
+            }
+            // onClose will be called by ws.onclose handler
+          }}
           className="p-1 hover:bg-[#3e3e3e] rounded text-gray-400 hover:text-white transition-colors"
           title="Close Connection"
         >

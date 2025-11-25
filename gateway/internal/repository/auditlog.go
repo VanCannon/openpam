@@ -87,11 +87,12 @@ func (r *AuditLogRepository) UpdateStatus(ctx context.Context, log *models.Audit
 // GetByID retrieves an audit log by ID
 func (r *AuditLogRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.AuditLog, error) {
 	query := `
-		SELECT id, user_id, target_id, credential_id, start_time, end_time,
-		       bytes_sent, bytes_received, session_status, client_ip,
-		       error_message, recording_path, created_at
-		FROM audit_logs
-		WHERE id = $1
+		SELECT a.id, a.user_id, a.target_id, a.credential_id, a.start_time, a.end_time,
+		       a.bytes_sent, a.bytes_received, a.session_status, a.client_ip,
+		       a.error_message, a.recording_path, a.created_at, t.protocol
+		FROM audit_logs a
+		JOIN targets t ON a.target_id = t.id
+		WHERE a.id = $1
 	`
 
 	var log models.AuditLog
@@ -106,12 +107,13 @@ func (r *AuditLogRepository) GetByID(ctx context.Context, id uuid.UUID) (*models
 // ListByUser retrieves audit logs for a specific user
 func (r *AuditLogRepository) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*models.AuditLog, error) {
 	query := `
-		SELECT id, user_id, target_id, credential_id, start_time, end_time,
-		       bytes_sent, bytes_received, session_status, client_ip,
-		       error_message, recording_path, created_at
-		FROM audit_logs
-		WHERE user_id = $1
-		ORDER BY start_time DESC
+		SELECT a.id, a.user_id, a.target_id, a.credential_id, a.start_time, a.end_time,
+		       a.bytes_sent, a.bytes_received, a.session_status, a.client_ip,
+		       a.error_message, a.recording_path, a.created_at, t.protocol
+		FROM audit_logs a
+		JOIN targets t ON a.target_id = t.id
+		WHERE a.user_id = $1
+		ORDER BY a.start_time DESC
 		LIMIT $2 OFFSET $3
 	`
 
@@ -127,12 +129,13 @@ func (r *AuditLogRepository) ListByUser(ctx context.Context, userID uuid.UUID, l
 // ListByTarget retrieves audit logs for a specific target
 func (r *AuditLogRepository) ListByTarget(ctx context.Context, targetID uuid.UUID, limit, offset int) ([]*models.AuditLog, error) {
 	query := `
-		SELECT id, user_id, target_id, credential_id, start_time, end_time,
-		       bytes_sent, bytes_received, session_status, client_ip,
-		       error_message, recording_path, created_at
-		FROM audit_logs
-		WHERE target_id = $1
-		ORDER BY start_time DESC
+		SELECT a.id, a.user_id, a.target_id, a.credential_id, a.start_time, a.end_time,
+		       a.bytes_sent, a.bytes_received, a.session_status, a.client_ip,
+		       a.error_message, a.recording_path, a.created_at, t.protocol
+		FROM audit_logs a
+		JOIN targets t ON a.target_id = t.id
+		WHERE a.target_id = $1
+		ORDER BY a.start_time DESC
 		LIMIT $2 OFFSET $3
 	`
 
@@ -148,11 +151,12 @@ func (r *AuditLogRepository) ListByTarget(ctx context.Context, targetID uuid.UUI
 // List retrieves all audit logs with pagination
 func (r *AuditLogRepository) List(ctx context.Context, limit, offset int) ([]*models.AuditLog, error) {
 	query := `
-		SELECT id, user_id, target_id, credential_id, start_time, end_time,
-		       bytes_sent, bytes_received, session_status, client_ip,
-		       error_message, recording_path, created_at
-		FROM audit_logs
-		ORDER BY start_time DESC
+		SELECT a.id, a.user_id, a.target_id, a.credential_id, a.start_time, a.end_time,
+		       a.bytes_sent, a.bytes_received, a.session_status, a.client_ip,
+		       a.error_message, a.recording_path, a.created_at, t.protocol
+		FROM audit_logs a
+		JOIN targets t ON a.target_id = t.id
+		ORDER BY a.start_time DESC
 		LIMIT $1 OFFSET $2
 	`
 
@@ -168,12 +172,13 @@ func (r *AuditLogRepository) List(ctx context.Context, limit, offset int) ([]*mo
 // ListActive retrieves all active sessions
 func (r *AuditLogRepository) ListActive(ctx context.Context) ([]*models.AuditLog, error) {
 	query := `
-		SELECT id, user_id, target_id, credential_id, start_time, end_time,
-		       bytes_sent, bytes_received, session_status, client_ip,
-		       error_message, recording_path, created_at
-		FROM audit_logs
-		WHERE session_status = $1
-		ORDER BY start_time DESC
+		SELECT a.id, a.user_id, a.target_id, a.credential_id, a.start_time, a.end_time,
+		       a.bytes_sent, a.bytes_received, a.session_status, a.client_ip,
+		       a.error_message, a.recording_path, a.created_at, t.protocol
+		FROM audit_logs a
+		JOIN targets t ON a.target_id = t.id
+		WHERE a.session_status = $1
+		ORDER BY a.start_time DESC
 	`
 
 	var logs []*models.AuditLog

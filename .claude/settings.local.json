@@ -12,7 +12,15 @@
       "Bash(ss:*)",
       "Bash(npm install:*)",
       "Bash(npm uninstall:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd microservices architecture with 6 agents and orchestrator\n\nImplemented agent-based architecture for OpenPAM with event-driven\ncommunication via NATS and service discovery via Consul.\n\n## New Components\n\n### Fully Implemented Agents:\n- License Agent (8086): License validation, feature flags, usage tracking\n- Scheduling Agent (8081): Time-based access control with auto-activation\n\n### Agent Foundations:\n- Identity Agent (8082): AD/LDAP sync framework\n- Activity Agent (8083): User lifecycle management\n- Automation Agent (8084): Ansible integration\n- Communications Agent (8085): Email/Slack/Teams/SIEM\n- Orchestrator (8090): Workflow coordination engine\n\n## Infrastructure:\n- Docker Compose configuration for all services\n- PostgreSQL, Redis, NATS, Consul, Vault integration\n- Service health checks and dependency management\n\n## Documentation:\n- Complete orchestrator.md specification\n- Updated architecture.md with orchestration layer\n- README-AGENTS.md with setup and troubleshooting\n\n## Features:\n- Event-driven pub/sub messaging (NATS)\n- Service discovery and registration (Consul)\n- Structured logging (JSON)\n- HTTP health check endpoints\n- Database connection pooling\n- Graceful shutdown handling\n\nLicense and Scheduling agents are production-ready reference\nimplementations. Remaining agents have directory structure and\ncan follow the same patterns.\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)",
+      "Bash(ssh-keygen:*)",
+      "Bash(git remote set-url:*)",
+      "Bash(ssh:*)",
+      "Bash(go run:*)"
     ],
     "deny": [],
     "ask": []

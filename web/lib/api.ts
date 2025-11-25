@@ -181,6 +181,30 @@ class ApiClient {
     return this.request<ListResponse<AuditLog>>(`/api/v1/audit-logs${queryString ? '?' + queryString : ''}`)
   }
 
+  async getAuditLog(id: string): Promise<AuditLog> {
+    return this.request<AuditLog>(`/api/v1/audit-logs/${id}`)
+  }
+
+  async getRecording(sessionId: string): Promise<string> {
+    const headers: Record<string, string> = {}
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    }
+
+    const response = await fetch(`${this.baseUrl}/api/v1/audit-logs/recording?session_id=${sessionId}`, {
+      headers,
+      credentials: 'include',
+      mode: 'cors',
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(error || `HTTP ${response.status}`)
+    }
+
+    return response.text()
+  }
+
   // WebSocket URL for connections
   getWebSocketUrl(protocol: string, targetId: string, credentialId: string): string {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080'

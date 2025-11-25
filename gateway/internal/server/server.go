@@ -69,7 +69,10 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		sshRecorder = nil // Continue without recording
 	}
 
-	sshProxy := ssh.NewProxy(log, sshRecorder)
+	// Create session monitor for live monitoring
+	sshMonitor := ssh.NewMonitor()
+
+	sshProxy := ssh.NewProxy(log, sshRecorder, sshMonitor)
 	rdpProxy := rdp.NewProxy("localhost:4822", log) // guacd address
 
 	// Initialize handlers
@@ -86,7 +89,8 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 	targetHandler := handlers.NewTargetHandler(targetRepo, log)
 	zoneHandler := handlers.NewZoneHandler(zoneRepo, log)
 	credHandler := handlers.NewCredentialHandler(credRepo, log)
-	auditHandler := handlers.NewAuditLogHandler(auditRepo, log)
+	auditHandler := handlers.NewAuditLogHandler(auditRepo, sshRecorder, log)
+	monitorHandler := handlers.NewMonitorHandler(auditRepo, userRepo, sshMonitor, sshRecorder, log, cfg.DevMode)
 
 	connectionHandler := handlers.NewConnectionHandler(
 		vaultClient,
@@ -138,8 +142,13 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 	s.router.Handle("/api/v1/credentials/delete", s.requireAuth(credHandler.HandleDelete()))
 
 	s.router.Handle("/api/v1/audit-logs", s.requireAuth(auditHandler.HandleList()))
+	s.router.Handle("/api/v1/audit-logs/", s.requireAuth(auditHandler.HandleGet()))
 	s.router.Handle("/api/v1/audit-logs/user", s.requireAuth(auditHandler.HandleListByUser()))
 	s.router.Handle("/api/v1/audit-logs/active", s.requireAuth(auditHandler.HandleListActive()))
+	s.router.Handle("/api/v1/audit-logs/recording", s.requireAuth(auditHandler.HandleGetRecording()))
+
+	// Live session monitoring WebSocket endpoint
+	s.router.Handle("/api/ws/monitor/", s.requireAuth(monitorHandler.HandleMonitor()))
 
 	s.setupRoutes()
 

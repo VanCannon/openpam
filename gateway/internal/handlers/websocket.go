@@ -208,7 +208,7 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 			TargetID:      targetID,
 			CredentialID:  uuid.NullUUID{UUID: cred.ID, Valid: true},
 			SessionStatus: models.SessionStatusActive,
-			ClientIP:      r.RemoteAddr,
+			ClientIP:      &r.RemoteAddr,
 		}
 
 		if err := h.auditRepo.Create(ctx, auditLog); err != nil {
@@ -236,7 +236,8 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 		// Update audit log with final status
 		if err != nil {
 			auditLog.SessionStatus = models.SessionStatusFailed
-			auditLog.ErrorMessage = err.Error()
+			errMsg := err.Error()
+			auditLog.ErrorMessage = &errMsg
 			h.logger.Error("Session failed", map[string]interface{}{
 				"audit_log_id": auditLog.ID.String(),
 				"error":        err.Error(),

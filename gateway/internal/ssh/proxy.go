@@ -19,13 +19,15 @@ import (
 type Proxy struct {
 	logger   *logger.Logger
 	recorder *Recorder
+	monitor  *Monitor
 }
 
 // NewProxy creates a new SSH proxy
-func NewProxy(log *logger.Logger, recorder *Recorder) *Proxy {
+func NewProxy(log *logger.Logger, recorder *Recorder, monitor *Monitor) *Proxy {
 	return &Proxy{
 		logger:   log,
 		recorder: recorder,
+		monitor:  monitor,
 	}
 }
 
@@ -114,18 +116,26 @@ func (p *Proxy) Handle(
 	var wg sync.WaitGroup
 	var bytesSent, bytesReceived int64
 	var wsMutex sync.Mutex // Mutex to synchronize WebSocket writes
+	wsClosedChan := make(chan struct{}) // Signal when WebSocket closes
 
 	// WebSocket -> SSH (user input)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer stdin.Close() // Close SSH stdin when WebSocket closes
+		defer close(wsClosedChan) // Signal that WebSocket closed
 		p.logger.Info("Starting WebSocket -> SSH loop")
 		for {
 			messageType, data, err := wsConn.ReadMessage()
 			if err != nil {
-				p.logger.Debug("WebSocket read error", map[string]interface{}{
-					"error": err.Error(),
-				})
+				// Check if it's a normal WebSocket close
+				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					p.logger.Info("WebSocket closed by client (user clicked X)")
+				} else {
+					p.logger.Debug("WebSocket read error", map[string]interface{}{
+						"error": err.Error(),
+					})
+				}
 				return
 			}
 
@@ -168,10 +178,8 @@ func (p *Proxy) Handle(
 				return
 			}
 
-			// Record input if enabled
-			if recWriter != nil {
-				recWriter.Write(data)
-			}
+			// Don't record input - the terminal echo in stdout already captures it
+			// Recording input here causes duplicate keystrokes in the replay
 		}
 	}()
 
@@ -222,6 +230,11 @@ func (p *Proxy) Handle(
 			if recWriter != nil {
 				recWriter.Write(data)
 			}
+
+			// Broadcast to live monitors
+			if p.monitor != nil {
+				p.monitor.Broadcast(auditLog.ID.String(), data)
+			}
 		}
 	}()
 
@@ -266,17 +279,55 @@ func (p *Proxy) Handle(
 	select {
 	case <-ctx.Done():
 		p.logger.Info("SSH session cancelled by context")
+		wsConn.Close()
+		wg.Wait()
 		return ctx.Err()
-	case err := <-done:
-		wg.Wait() // Wait for goroutines to finish
+	case <-wsClosedChan:
+		// WebSocket closed by client (user clicked X) - terminate SSH session
+		p.logger.Info("WebSocket closed by client, terminating SSH session")
+		session.Close()
+		wg.Wait()
 		auditLog.BytesSent = bytesSent
 		auditLog.BytesReceived = bytesReceived
+		// Treat user-initiated close as successful completion
+		return nil
+	case err := <-done:
+		// SSH session ended - close WebSocket immediately to unblock goroutines
+		p.logger.Info("SSH session ended, closing WebSocket")
+		wsConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "SSH session ended"))
+		wsConn.Close()
+
+		wg.Wait() // Wait for goroutines to finish (they'll exit when WebSocket closes)
+		auditLog.BytesSent = bytesSent
+		auditLog.BytesReceived = bytesReceived
+
+		// Check if the error is an ExitError with status 0 (normal exit)
 		if err != nil {
+			// Check if it's an SSH exit status error
+			if exitErr, ok := err.(*ssh.ExitError); ok {
+				exitStatus := exitErr.ExitStatus()
+				p.logger.Info("SSH session exited", map[string]interface{}{
+					"exit_status": exitStatus,
+				})
+				// Exit status 0 means success (user typed "exit")
+				// Exit status 127 means last command not found (common when exiting shell)
+				// Exit status 130 means user pressed Ctrl+C (also acceptable)
+				if exitStatus == 0 || exitStatus == 127 || exitStatus == 130 {
+					p.logger.Info("Treating as successful session exit", map[string]interface{}{
+						"exit_status": exitStatus,
+					})
+					return nil
+				}
+				// Other non-zero exit statuses are actual errors
+				return fmt.Errorf("SSH session exited with status %d", exitStatus)
+			}
+			// Other errors are real failures
 			return fmt.Errorf("SSH session error: %w", err)
 		}
+		// Normal exit - return nil
+		p.logger.Info("SSH session completed normally")
+		return nil
 	}
-
-	return nil
 }
 
 // buildSSHConfig creates SSH client configuration

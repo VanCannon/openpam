@@ -39,13 +39,23 @@ export interface AuditLog {
   id: string
   user_id: string
   target_id: string
-  protocol: string
-  status: 'active' | 'completed' | 'failed'
-  started_at: string
-  ended_at?: string
+  credential_id?: {
+    UUID: string
+    Valid: boolean
+  }
+  start_time: string
+  end_time?: {
+    Time: string
+    Valid: boolean
+  }
   bytes_sent?: number
   bytes_received?: number
+  session_status: 'active' | 'completed' | 'failed' | 'terminated'
+  client_ip?: string
   error_message?: string
+  recording_path?: string
+  protocol: string
+  created_at: string
 }
 
 export interface ApiResponse<T> {
@@ -55,8 +65,13 @@ export interface ApiResponse<T> {
 }
 
 export interface ListResponse<T> {
-  items: T[]
-  total: number
+  items?: T[]
+  logs?: T[]
+  sessions?: T[]
+  total?: number
+  count?: number
   page?: number
   page_size?: number
+  limit?: number
+  offset?: number
 }
