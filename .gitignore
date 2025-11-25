@@ -8,6 +8,10 @@
 # Go
 gateway/bin/
 gateway/vendor/
+*-agent/bin/
+*-agent/vendor/
+orchestrator-agent/bin/
+orchestrator-agent/vendor/
 *.exe
 *.exe~
 *.dll
@@ -16,6 +20,7 @@ gateway/vendor/
 *.test
 *.out
 go.work
+go.sum
 
 # Next.js / Node.js
 web/node_modules/
@@ -56,4 +61,16 @@ temp/
 *.key
 *.crt
 secrets/
+
+# Docker volumes
+postgres_data/
+redis_data/
+consul_data/
+
+# Agent config overrides (keep config.yaml, ignore local overrides)
+*-agent/config.local.yaml
+orchestrator-agent/config.local.yaml
+
+# Database migrations state
+*.sql.state
 
