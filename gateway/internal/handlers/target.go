@@ -23,6 +23,31 @@ func NewTargetHandler(targetRepo *repository.TargetRepository, log *logger.Logge
 	}
 }
 
+// HandleTargets routes to appropriate handler based on HTTP method and query parameters
+func (h *TargetHandler) HandleTargets() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+
+		// Route based on method and presence of ID
+		switch r.Method {
+		case http.MethodGet:
+			if id != "" {
+				h.HandleGet()(w, r)
+			} else {
+				h.HandleList()(w, r)
+			}
+		case http.MethodPost:
+			h.HandleCreate()(w, r)
+		case http.MethodPut:
+			h.HandleUpdate()(w, r)
+		case http.MethodDelete:
+			h.HandleDelete()(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}
+}
+
 // HandleList returns a list of available targets
 func (h *TargetHandler) HandleList() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +90,7 @@ func (h *TargetHandler) HandleList() http.HandlerFunc {
 			Protocol    string `json:"protocol"`
 			Port        int    `json:"port"`
 			Description string `json:"description,omitempty"`
+			Enabled     bool   `json:"enabled"`
 		}
 
 		response := make([]targetResponse, len(targets))
@@ -76,6 +102,7 @@ func (h *TargetHandler) HandleList() http.HandlerFunc {
 				Protocol:    target.Protocol,
 				Port:        target.Port,
 				Description: target.Description,
+				Enabled:     target.Enabled,
 			}
 		}
 

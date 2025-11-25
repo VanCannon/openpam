@@ -176,7 +176,7 @@ func (s *Server) setupRoutes() {
 
 	// Protected routes (auth required)
 	s.router.Handle("/api/v1/auth/me", s.requireAuth(s.authHandler.HandleMe()))
-	s.router.Handle("/api/v1/targets", s.requireAuth(s.targetHandler.HandleList()))
+	s.router.Handle("/api/v1/targets", s.requireAuth(s.targetHandler.HandleTargets()))
 
 	// WebSocket endpoint for connections (auth required)
 	s.router.Handle("/api/ws/connect/", s.requireAuth(s.connectionHandler.HandleConnect()))
