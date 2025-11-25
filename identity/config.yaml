@@ -1,0 +1,45 @@
+server:
+  port: 8082
+  host: "0.0.0.0"
+
+database:
+  host: "localhost"
+  port: 5432
+  name: "openpam"
+  user: "openpam"
+  password: "openpam"
+  sslmode: "disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+
+nats:
+  url: "nats://localhost:4222"
+  cluster_id: "openpam-cluster"
+
+consul:
+  address: "localhost:8500"
+  service_name: "identity"
+  service_id: "identity-1"
+  check_interval: "10s"
+  deregister_critical_service_after: "30s"
+
+logging:
+  level: "info"
+  format: "json"
+
+ldap:
+  enabled: false
+  server: "ldap://localhost:389"
+  bind_dn: "cn=admin,dc=example,dc=com"
+  bind_password: "password"
+  base_dn: "dc=example,dc=com"
+  user_search_base: "ou=users,dc=example,dc=com"
+  user_filter: "(objectClass=person)"
+  group_search_base: "ou=groups,dc=example,dc=com"
+  group_filter: "(objectClass=groupOfNames)"
+  sync_interval: "1h"
+  attributes:
+    username: "uid"
+    email: "mail"
+    full_name: "cn"
+    member_of: "memberOf"

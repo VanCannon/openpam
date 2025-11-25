@@ -8,10 +8,20 @@
 # Go
 gateway/bin/
 gateway/vendor/
-*-agent/bin/
-*-agent/vendor/
-orchestrator-agent/bin/
-orchestrator-agent/vendor/
+license/bin/
+license/vendor/
+scheduling/bin/
+scheduling/vendor/
+identity/bin/
+identity/vendor/
+activity/bin/
+activity/vendor/
+automation/bin/
+automation/vendor/
+communications/bin/
+communications/vendor/
+orchestrator/bin/
+orchestrator/vendor/
 *.exe
 *.exe~
 *.dll
@@ -67,9 +77,8 @@ postgres_data/
 redis_data/
 consul_data/
 
-# Agent config overrides (keep config.yaml, ignore local overrides)
-*-agent/config.local.yaml
-orchestrator-agent/config.local.yaml
+# Service config overrides (keep config.yaml, ignore local overrides)
+*/config.local.yaml
 
 # Database migrations state
 *.sql.state
