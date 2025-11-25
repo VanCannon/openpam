@@ -1,11 +1,7 @@
-import type { Metadata } from 'next'
+'use client'
+
 import './globals.css'
 import { AuthProvider } from '@/lib/auth-context'
-
-export const metadata: Metadata = {
-  title: 'OpenPAM - Privileged Access Management',
-  description: 'Secure access to SSH and RDP targets',
-}
 
 export default function RootLayout({
   children,
@@ -13,7 +9,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body>
         <AuthProvider>
           {children}

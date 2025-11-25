@@ -40,7 +40,7 @@ export default function TargetsPage() {
     try {
       setLoadingTargets(true)
       const response = await api.listTargets()
-      setTargets(response.items || [])
+      setTargets(response.targets || [])
     } catch (error) {
       console.error('Failed to load targets:', error)
     } finally {
@@ -51,7 +51,7 @@ export default function TargetsPage() {
   const loadZones = async () => {
     try {
       const response = await api.listZones()
-      setZones(response.items || [])
+      setZones(response.zones || [])
     } catch (error) {
       console.error('Failed to load zones:', error)
     }
@@ -139,17 +139,15 @@ export default function TargetsPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{target.name}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{target.hostname}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-semibold rounded ${
-                        target.protocol === 'ssh' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
-                      }`}>
+                      <span className={`px-2 py-1 text-xs font-semibold rounded ${target.protocol === 'ssh' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                        }`}>
                         {target.protocol.toUpperCase()}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{target.port}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-semibold rounded ${
-                        target.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                      }`}>
+                      <span className={`px-2 py-1 text-xs font-semibold rounded ${target.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                        }`}>
                         {target.enabled ? 'Enabled' : 'Disabled'}
                       </span>
                     </td>

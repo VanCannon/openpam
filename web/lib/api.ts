@@ -28,6 +28,11 @@ class ApiClient {
     path: string,
     options: RequestInit = {}
   ): Promise<T> {
+    // Ensure we are in a browser environment (skip during SSR)
+    if (typeof window === 'undefined') {
+      return Promise.reject(new Error('API calls can only be made from the browser'))
+    }
+
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       ...options.headers,
@@ -37,17 +42,28 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      ...options,
-      headers,
-    })
+    try {
+      const response = await fetch(`${this.baseUrl}${path}`, {
+        ...options,
+        headers,
+        credentials: 'include', // Include cookies for CORS
+        mode: 'cors',           // Explicit CORS mode for Next.js 16
+      })
 
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(error || `HTTP ${response.status}`)
+      if (!response.ok) {
+        const error = await response.text()
+        throw new Error(error || `HTTP ${response.status}`)
+      }
+
+      return response.json()
+    } catch (error) {
+      console.error('API request failed:', {
+        path,
+        baseUrl: this.baseUrl,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
     }
-
-    return response.json()
   }
 
   // Authentication
@@ -109,7 +125,7 @@ class ApiClient {
   }
 
   async createTarget(target: Partial<Target>): Promise<Target> {
-    return this.request<Target>('/api/v1/targets', {
+    return this.request<Target>('/api/v1/targets/create', {
       method: 'POST',
       body: JSON.stringify(target),
     })
@@ -136,14 +152,21 @@ class ApiClient {
   }
 
   async createCredential(credential: Partial<Credential>): Promise<Credential> {
-    return this.request<Credential>('/api/v1/credentials', {
+    return this.request<Credential>('/api/v1/credentials/create', {
       method: 'POST',
       body: JSON.stringify(credential),
     })
   }
 
+  async updateCredential(id: string, credential: Partial<Credential>): Promise<Credential> {
+    return this.request<Credential>(`/api/v1/credentials/update?id=${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(credential),
+    })
+  }
+
   async deleteCredential(id: string): Promise<void> {
-    return this.request<void>(`/api/v1/credentials?id=${id}`, {
+    return this.request<void>(`/api/v1/credentials/delete?id=${id}`, {
       method: 'DELETE',
     })
   }

@@ -28,13 +28,13 @@ var upgrader = websocket.Upgrader{
 
 // ConnectionHandler handles WebSocket connection requests
 type ConnectionHandler struct {
-	vault        *vault.Client
-	targetRepo   *repository.TargetRepository
-	credRepo     *repository.CredentialRepository
-	auditRepo    *repository.AuditLogRepository
-	sshProxy     *ssh.Proxy
-	rdpProxy     *rdp.Proxy
-	logger       *logger.Logger
+	vault      *vault.Client
+	targetRepo *repository.TargetRepository
+	credRepo   *repository.CredentialRepository
+	auditRepo  *repository.AuditLogRepository
+	sshProxy   *ssh.Proxy
+	rdpProxy   *rdp.Proxy
+	logger     *logger.Logger
 }
 
 // NewConnectionHandler creates a new connection handler
@@ -160,21 +160,36 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 		// Use first credential (TODO: implement credential selection)
 		cred := credentials[0]
 
-		// Retrieve secret from Vault
-		vaultCreds, err := h.vault.GetCredentials(ctx, cred.VaultSecretPath)
-		if err != nil {
-			h.logger.Error("Failed to retrieve credentials from Vault", map[string]interface{}{
-				"vault_path": cred.VaultSecretPath,
-				"error":      err.Error(),
+		// Check if using raw password (for testing/dev)
+		var vaultCreds *vault.Credentials
+		if strings.HasPrefix(cred.VaultSecretPath, "raw:") {
+			password := strings.TrimPrefix(cred.VaultSecretPath, "raw:")
+			vaultCreds = &vault.Credentials{
+				Username: cred.Username,
+				Password: password,
+			}
+			h.logger.Info("Using raw password credentials", map[string]interface{}{
+				"target_id": targetID.String(),
+				"username":  cred.Username,
 			})
-			http.Error(w, "Failed to retrieve credentials", http.StatusInternalServerError)
-			return
-		}
+		} else {
+			// Retrieve secret from Vault
+			var err error
+			vaultCreds, err = h.vault.GetCredentials(ctx, cred.VaultSecretPath)
+			if err != nil {
+				h.logger.Error("Failed to retrieve credentials from Vault", map[string]interface{}{
+					"vault_path": cred.VaultSecretPath,
+					"error":      err.Error(),
+				})
+				http.Error(w, "Failed to retrieve credentials", http.StatusInternalServerError)
+				return
+			}
 
-		h.logger.Info("Credentials retrieved from Vault", map[string]interface{}{
-			"target_id": targetID.String(),
-			"username":  vaultCreds.Username,
-		})
+			h.logger.Info("Credentials retrieved from Vault", map[string]interface{}{
+				"target_id": targetID.String(),
+				"username":  vaultCreds.Username,
+			})
+		}
 
 		// Upgrade to WebSocket
 		conn, err := upgrader.Upgrade(w, r, nil)

@@ -31,7 +31,7 @@ export default function ZonesPage() {
     try {
       setLoadingZones(true)
       const response = await api.listZones()
-      setZones(response.items || [])
+      setZones(response.zones || [])
     } catch (error) {
       console.error('Failed to load zones:', error)
     } finally {
@@ -118,9 +118,8 @@ export default function ZonesPage() {
                   <tr key={zone.id}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{zone.name}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-semibold rounded ${
-                        zone.type === 'hub' ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'
-                      }`}>
+                      <span className={`px-2 py-1 text-xs font-semibold rounded ${zone.type === 'hub' ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'
+                        }`}>
                         {zone.type}
                       </span>
                     </td>

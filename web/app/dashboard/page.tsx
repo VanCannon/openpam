@@ -37,7 +37,7 @@ export default function DashboardPage() {
     try {
       setLoadingTargets(true)
       const response = await api.listTargets()
-      setTargets(response.items || [])
+      setTargets(response.targets || [])
     } catch (error) {
       console.error('Failed to load targets:', error)
     } finally {
@@ -151,11 +151,10 @@ export default function DashboardPage() {
               >
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-lg font-semibold text-gray-900">{target.name}</h3>
-                  <span className={`px-2 py-1 text-xs font-semibold rounded ${
-                    target.protocol === 'ssh'
+                  <span className={`px-2 py-1 text-xs font-semibold rounded ${target.protocol === 'ssh'
                       ? 'bg-green-100 text-green-800'
                       : 'bg-blue-100 text-blue-800'
-                  }`}>
+                    }`}>
                     {target.protocol.toUpperCase()}
                   </span>
                 </div>

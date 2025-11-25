@@ -29,7 +29,7 @@ export default function AuditPage() {
     try {
       setLoadingLogs(true)
       const response = await api.listAuditLogs()
-      setAuditLogs(response.items || [])
+      setAuditLogs(response.logs || [])
     } catch (error) {
       console.error('Failed to load audit logs:', error)
     } finally {
@@ -98,9 +98,8 @@ export default function AuditPage() {
                     <tr key={log.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{log.user_id}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 text-xs font-semibold rounded ${
-                          log.protocol === 'ssh' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
-                        }`}>
+                        <span className={`px-2 py-1 text-xs font-semibold rounded ${log.protocol === 'ssh' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                          }`}>
                           {log.protocol.toUpperCase()}
                         </span>
                       </td>
@@ -111,11 +110,10 @@ export default function AuditPage() {
                         {log.ended_at ? formatDate(log.ended_at) : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 text-xs font-semibold rounded ${
-                          log.status === 'completed' ? 'bg-green-100 text-green-800' :
-                          log.status === 'active' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
+                        <span className={`px-2 py-1 text-xs font-semibold rounded ${log.status === 'completed' ? 'bg-green-100 text-green-800' :
+                            log.status === 'active' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-red-100 text-red-800'
+                          }`}>
                           {log.status}
                         </span>
                       </td>

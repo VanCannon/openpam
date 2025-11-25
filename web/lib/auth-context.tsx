@@ -17,17 +17,28 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    checkAuth()
+    setMounted(true)
   }, [])
+
+  useEffect(() => {
+    if (mounted) {
+      checkAuth()
+    }
+  }, [mounted])
 
   const checkAuth = async () => {
     try {
       const currentUser = await api.getCurrentUser()
       setUser(currentUser)
     } catch (error) {
-      console.error('Auth check failed:', error)
+      // 401 is expected when not logged in - don't show error
+      const isUnauthorized = error instanceof Error && error.message.includes('401')
+      if (!isUnauthorized) {
+        console.error('Auth check failed:', error)
+      }
       setUser(null)
     } finally {
       setLoading(false)

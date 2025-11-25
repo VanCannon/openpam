@@ -2,9 +2,9 @@ package ssh
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"sync"
 	"time"
 
@@ -70,6 +70,7 @@ func (p *Proxy) Handle(
 	}
 
 	// Request PTY
+	p.logger.Info("Requesting PTY", map[string]interface{}{"target": target.Hostname})
 	if err := session.RequestPty("xterm-256color", 40, 80, modes); err != nil {
 		return fmt.Errorf("failed to request PTY: %w", err)
 	}
@@ -91,9 +92,11 @@ func (p *Proxy) Handle(
 	}
 
 	// Start shell
+	p.logger.Info("Starting shell", map[string]interface{}{"target": target.Hostname})
 	if err := session.Shell(); err != nil {
 		return fmt.Errorf("failed to start shell: %w", err)
 	}
+	p.logger.Info("Shell started", map[string]interface{}{"target": target.Hostname})
 
 	// Set up recording if enabled
 	var recWriter io.Writer
@@ -110,18 +113,49 @@ func (p *Proxy) Handle(
 	// Proxy data between WebSocket and SSH
 	var wg sync.WaitGroup
 	var bytesSent, bytesReceived int64
+	var wsMutex sync.Mutex // Mutex to synchronize WebSocket writes
 
 	// WebSocket -> SSH (user input)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		p.logger.Info("Starting WebSocket -> SSH loop")
 		for {
-			_, data, err := wsConn.ReadMessage()
+			messageType, data, err := wsConn.ReadMessage()
 			if err != nil {
 				p.logger.Debug("WebSocket read error", map[string]interface{}{
 					"error": err.Error(),
 				})
 				return
+			}
+
+			p.logger.Debug("Received data from WebSocket", map[string]interface{}{
+				"bytes":        len(data),
+				"message_type": messageType,
+			})
+
+			// Handle text messages as potential control messages
+			if messageType == websocket.TextMessage {
+				// Try to parse as JSON control message
+				var controlMsg struct {
+					Type string `json:"type"`
+					Cols int    `json:"cols"`
+					Rows int    `json:"rows"`
+				}
+				if err := json.Unmarshal(data, &controlMsg); err == nil && controlMsg.Type == "resize" {
+					p.logger.Debug("Handling terminal resize", map[string]interface{}{
+						"cols": controlMsg.Cols,
+						"rows": controlMsg.Rows,
+					})
+					// Handle resize
+					if err := session.WindowChange(controlMsg.Rows, controlMsg.Cols); err != nil {
+						p.logger.Error("Failed to resize terminal", map[string]interface{}{
+							"error": err.Error(),
+						})
+					}
+					continue
+				}
+				// If not a control message, treat as terminal input
 			}
 
 			bytesSent += int64(len(data))
@@ -145,29 +179,44 @@ func (p *Proxy) Handle(
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		p.logger.Info("Starting SSH stdout -> WebSocket loop")
 		buffer := make([]byte, 4096)
 		for {
+			p.logger.Debug("Waiting to read from SSH stdout...")
 			n, err := stdout.Read(buffer)
 			if err != nil {
 				if err != io.EOF {
 					p.logger.Debug("SSH stdout read error", map[string]interface{}{
 						"error": err.Error(),
 					})
+				} else {
+					p.logger.Debug("SSH stdout EOF")
 				}
 				return
 			}
+
+			p.logger.Info("Received data from SSH stdout", map[string]interface{}{
+				"bytes": n,
+				"data":  string(buffer[:n]),
+			})
 
 			bytesReceived += int64(n)
 
 			data := buffer[:n]
 
 			// Send to WebSocket
-			if err := wsConn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+			p.logger.Debug("Sending data to WebSocket", map[string]interface{}{"bytes": n})
+			wsMutex.Lock()
+			err = wsConn.WriteMessage(websocket.BinaryMessage, data)
+			wsMutex.Unlock()
+
+			if err != nil {
 				p.logger.Error("Failed to write to WebSocket", map[string]interface{}{
 					"error": err.Error(),
 				})
 				return
 			}
+			p.logger.Debug("Successfully sent data to WebSocket")
 
 			// Record output if enabled
 			if recWriter != nil {
@@ -195,7 +244,11 @@ func (p *Proxy) Handle(
 			data := buffer[:n]
 
 			// Send to WebSocket
-			if err := wsConn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+			wsMutex.Lock()
+			err = wsConn.WriteMessage(websocket.BinaryMessage, data)
+			wsMutex.Unlock()
+
+			if err != nil {
 				p.logger.Error("Failed to write stderr to WebSocket", map[string]interface{}{
 					"error": err.Error(),
 				})

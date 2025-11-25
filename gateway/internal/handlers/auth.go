@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"github.com/bvanc/openpam/gateway/internal/auth"
 	"github.com/bvanc/openpam/gateway/internal/logger"
 	"github.com/bvanc/openpam/gateway/internal/repository"
+	"github.com/google/uuid"
 )
 
 // AuthHandler handles authentication-related requests
@@ -342,21 +342,8 @@ func (h *AuthHandler) HandleMe() http.HandlerFunc {
 }
 
 // parseUUID is a helper to parse UUID strings
-func parseUUID(s string) ([16]byte, error) {
-	u, err := parseUUIDString(s)
-	if err != nil {
-		return [16]byte{}, err
-	}
-	return u, nil
-}
-
-func parseUUIDString(s string) ([16]byte, error) {
-	var uuid [16]byte
-	if len(s) != 36 {
-		return uuid, fmt.Errorf("invalid UUID length")
-	}
-	// Simple parsing - in production use uuid.Parse()
-	return uuid, nil
+func parseUUID(s string) (uuid.UUID, error) {
+	return uuid.Parse(s)
 }
 
 // handleDevLogin handles automatic login in development mode

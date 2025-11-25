@@ -20,17 +20,17 @@ import (
 
 // Server represents the OpenPAM gateway server
 type Server struct {
-	config          *config.Config
-	db              *database.DB
-	vault           *vault.Client
-	logger          *logger.Logger
-	httpServer      *http.Server
-	router          *http.ServeMux
-	authHandler     *handlers.AuthHandler
-	targetHandler   *handlers.TargetHandler
+	config            *config.Config
+	db                *database.DB
+	vault             *vault.Client
+	logger            *logger.Logger
+	httpServer        *http.Server
+	router            *http.ServeMux
+	authHandler       *handlers.AuthHandler
+	targetHandler     *handlers.TargetHandler
 	connectionHandler *handlers.ConnectionHandler
-	tokenManager    *auth.TokenManager
-	sessionStore    auth.SessionStore
+	tokenManager      *auth.TokenManager
+	sessionStore      auth.SessionStore
 }
 
 // New creates a new server instance
@@ -111,8 +111,17 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		sessionStore:      sessionStore,
 	}
 
-	// Store handlers for route setup
-	s.router.Handle("/api/v1/zones", s.requireAuth(zoneHandler.HandleList()))
+	// Zone routes - support both GET and POST on /api/v1/zones
+	s.router.Handle("/api/v1/zones", s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			zoneHandler.HandleList().ServeHTTP(w, r)
+		case http.MethodPost:
+			zoneHandler.HandleCreate().ServeHTTP(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})))
 	s.router.Handle("/api/v1/zones/create", s.requireAuth(zoneHandler.HandleCreate()))
 	s.router.Handle("/api/v1/zones/get", s.requireAuth(zoneHandler.HandleGet()))
 	s.router.Handle("/api/v1/zones/update", s.requireAuth(zoneHandler.HandleUpdate()))
@@ -125,6 +134,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 
 	s.router.Handle("/api/v1/credentials", s.requireAuth(credHandler.HandleListByTarget()))
 	s.router.Handle("/api/v1/credentials/create", s.requireAuth(credHandler.HandleCreate()))
+	s.router.Handle("/api/v1/credentials/update", s.requireAuth(credHandler.HandleUpdate()))
 	s.router.Handle("/api/v1/credentials/delete", s.requireAuth(credHandler.HandleDelete()))
 
 	s.router.Handle("/api/v1/audit-logs", s.requireAuth(auditHandler.HandleList()))
@@ -135,7 +145,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
-		Handler:      s.router,
+		Handler:      middleware.CORS([]string{"http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001"})(s.router),
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 		IdleTimeout:  cfg.Server.IdleTimeout,
@@ -257,4 +267,3 @@ func (s *Server) handleReady() http.HandlerFunc {
 		w.Write([]byte(`{"status":"ready"}`))
 	}
 }
-

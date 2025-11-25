@@ -130,6 +130,66 @@ func (h *CredentialHandler) HandleCreate() http.HandlerFunc {
 	}
 }
 
+// HandleUpdate updates an existing credential
+func (h *CredentialHandler) HandleUpdate() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		ctx := r.Context()
+		id := r.URL.Query().Get("id")
+
+		credID, err := uuid.Parse(id)
+		if err != nil {
+			http.Error(w, "Invalid credential ID", http.StatusBadRequest)
+			return
+		}
+
+		var req struct {
+			Username        string `json:"username"`
+			VaultSecretPath string `json:"vault_secret_path"`
+			Description     string `json:"description"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.Username == "" || req.VaultSecretPath == "" {
+			http.Error(w, "Missing required fields", http.StatusBadRequest)
+			return
+		}
+
+		// Get existing credential to preserve other fields
+		existingCred, err := h.credRepo.GetByID(ctx, credID)
+		if err != nil {
+			h.logger.Error("Failed to get credential for update", map[string]interface{}{
+				"error": err.Error(),
+			})
+			http.Error(w, "Credential not found", http.StatusNotFound)
+			return
+		}
+
+		existingCred.Username = req.Username
+		existingCred.VaultSecretPath = req.VaultSecretPath
+		existingCred.Description = req.Description
+
+		if err := h.credRepo.Update(ctx, existingCred); err != nil {
+			h.logger.Error("Failed to update credential", map[string]interface{}{
+				"error": err.Error(),
+			})
+			http.Error(w, "Failed to update credential", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(existingCred)
+	}
+}
+
 // HandleDelete deletes a credential
 func (h *CredentialHandler) HandleDelete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
