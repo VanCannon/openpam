@@ -27,8 +27,10 @@ gateway-dev:
 
 kill-gateway:
 	@echo "Killing any running gateway processes..."
-	@pkill -f "cmd/server/main.go" || echo "No gateway processes found"
-	@pkill -f "gateway.*server" || true
+	@pkill -9 -f "cmd/server/main.go" 2>/dev/null || echo "No cmd/server/main.go processes found"
+	@pkill -9 -f "gateway.*go run" 2>/dev/null || true
+	@pkill -9 -f "openpam-gateway" 2>/dev/null || true
+	@pgrep -f "cmd/server" | xargs -r kill -9 2>/dev/null || true
 	@echo "Gateway processes stopped"
 
 run:
