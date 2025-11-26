@@ -31,6 +31,7 @@ kill-gateway:
 	@pkill -9 -f "gateway.*go run" 2>/dev/null || true
 	@pkill -9 -f "openpam-gateway" 2>/dev/null || true
 	@pgrep -f "cmd/server" | xargs -r kill -9 2>/dev/null || true
+	@lsof -ti:8080 2>/dev/null | xargs -r kill -9 2>/dev/null || true
 	@echo "Gateway processes stopped"
 
 run:
