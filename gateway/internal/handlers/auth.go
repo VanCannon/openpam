@@ -21,6 +21,7 @@ type AuthHandler struct {
 	userRepo     *repository.UserRepository
 	logger       *logger.Logger
 	devMode      bool
+	frontendURL  string
 }
 
 // NewAuthHandler creates a new authentication handler
@@ -32,6 +33,7 @@ func NewAuthHandler(
 	userRepo *repository.UserRepository,
 	log *logger.Logger,
 	devMode bool,
+	frontendURL string,
 ) *AuthHandler {
 	return &AuthHandler{
 		entraID:      entraID,
@@ -41,6 +43,7 @@ func NewAuthHandler(
 		userRepo:     userRepo,
 		logger:       log,
 		devMode:      devMode,
+		frontendURL:  frontendURL,
 	}
 }
 
@@ -464,6 +467,6 @@ func (h *AuthHandler) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Redirect to callback with token
-	redirectURL := fmt.Sprintf("/auth/callback?token=%s", jwtToken)
+	redirectURL := fmt.Sprintf("%s/auth/callback?token=%s", h.frontendURL, jwtToken)
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }

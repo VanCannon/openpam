@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { api } from '@/lib/api'
@@ -9,8 +9,12 @@ export default function AuthCallbackPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { setToken } = useAuth()
+  const hasRun = useRef(false)
 
   useEffect(() => {
+    if (hasRun.current) return
+    hasRun.current = true
+
     const handleCallback = async () => {
       // Try to get token from query parameter
       const token = searchParams.get('token')
@@ -34,12 +38,10 @@ export default function AuthCallbackPage() {
         api.setToken(finalToken)
 
         // Update auth context
-        setToken(finalToken)
+        await setToken(finalToken)
 
-        // Small delay to let everything update, then redirect
-        setTimeout(() => {
-          router.push('/dashboard')
-        }, 100)
+        // Redirect to dashboard
+        router.push('/dashboard')
       } else {
         console.error('No token found in callback')
         router.push('/login')

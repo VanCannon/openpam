@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import Link from 'next/link'
+import Header from '@/components/header'
 
 export default function AdminPage() {
   const { user, loading } = useAuth()
@@ -64,26 +65,7 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <Link href="/dashboard" className="text-2xl font-bold text-gray-900">
-                OpenPAM
-              </Link>
-              <span className="ml-4 text-sm text-gray-500">Admin</span>
-            </div>
-            <div className="flex items-center">
-              <Link
-                href="/dashboard"
-                className="text-sm text-blue-600 hover:text-blue-800"
-              >
-                Back to Dashboard
-              </Link>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <Header />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">

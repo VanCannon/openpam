@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
+import Header from '@/components/header'
 
 interface User {
   id: string
@@ -61,7 +62,7 @@ export default function UsersManagementPage() {
         credentials: 'include',
         body: JSON.stringify({ role: newRole })
       })
-      
+
       if (response.ok) {
         fetchUsers()
         setShowEditModal(false)
@@ -79,7 +80,7 @@ export default function UsersManagementPage() {
         credentials: 'include',
         body: JSON.stringify({ enabled })
       })
-      
+
       if (response.ok) {
         fetchUsers()
       }
@@ -94,6 +95,7 @@ export default function UsersManagementPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <Header />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
@@ -152,22 +154,20 @@ export default function UsersManagementPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        u.role === 'admin' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
-                        u.role === 'auditor' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
-                        'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                      }`}>
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${u.role === 'admin' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
+                          u.role === 'auditor' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                            'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                        }`}>
                         {u.role}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button
                         onClick={() => handleToggleEnabled(u.id, !u.enabled)}
-                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          u.enabled 
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${u.enabled
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                             : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                        }`}
+                          }`}
                       >
                         {u.enabled ? 'Active' : 'Disabled'}
                       </button>
@@ -209,11 +209,10 @@ export default function UsersManagementPage() {
                 <button
                   key={role}
                   onClick={() => handleUpdateRole(selectedUser.id, role)}
-                  className={`w-full px-4 py-3 rounded-lg text-left transition-colors ${
-                    selectedUser.role === role
+                  className={`w-full px-4 py-3 rounded-lg text-left transition-colors ${selectedUser.role === role
                       ? 'bg-indigo-600 text-white'
                       : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}
+                    }`}
                 >
                   <div className="font-semibold capitalize">{role}</div>
                   <div className="text-sm opacity-80">

@@ -33,9 +33,10 @@ class ApiClient {
       return Promise.reject(new Error('API calls can only be made from the browser'))
     }
 
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
+      'Cache-Control': 'no-store',
+      ...options.headers as Record<string, string>,
     }
 
     if (this.token) {
@@ -46,6 +47,7 @@ class ApiClient {
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...options,
         headers,
+        cache: 'no-store',      // Disable browser caching
         credentials: 'include', // Include cookies for CORS
         mode: 'cors',           // Explicit CORS mode for Next.js 16
       })

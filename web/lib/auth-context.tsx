@@ -9,7 +9,7 @@ interface AuthContextType {
   loading: boolean
   login: () => void
   logout: () => Promise<void>
-  setToken: (token: string) => void
+  setToken: (token: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -58,9 +58,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const setToken = (token: string) => {
+  const setToken = async (token: string) => {
     api.setToken(token)
-    checkAuth()
+    await checkAuth()
   }
 
   return (

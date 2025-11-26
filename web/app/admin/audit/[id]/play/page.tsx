@@ -9,6 +9,7 @@ import type { Terminal as XTerm } from '@xterm/xterm'
 import type { FitAddon } from '@xterm/addon-fit'
 import type { AuditLog } from '@/types'
 import '@xterm/xterm/css/xterm.css'
+import Header from '@/components/header'
 
 export default function SessionPlayerPage() {
     const { user, loading } = useAuth()
@@ -211,19 +212,7 @@ export default function SessionPlayerPage() {
 
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col">
-            <nav className="bg-white shadow-sm">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between h-16">
-                        <div className="flex items-center">
-                            <Link href="/admin" className="text-2xl font-bold text-gray-900">OpenPAM</Link>
-                            <span className="ml-4 text-sm text-gray-500">/ Audit Logs / {isLive ? 'Live Monitor' : 'Session Replay'}</span>
-                        </div>
-                        <div className="flex items-center">
-                            <Link href="/admin/audit" className="text-sm text-blue-600 hover:text-blue-800">Back to Logs</Link>
-                        </div>
-                    </div>
-                </div>
-            </nav>
+            <Header />
 
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
                 <div className="mb-6 flex items-center justify-between">

@@ -6,6 +6,7 @@ import { Target, Credential } from '@/types'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
+import Header from '@/components/header'
 
 const Terminal = dynamic(() => import('@/components/terminal'), { ssr: false })
 const RdpViewer = dynamic(() => import('@/components/rdp-viewer'), { ssr: false })
@@ -102,55 +103,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <h1 className="text-2xl font-bold text-gray-900">OpenPAM</h1>
-            </div>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-700">{user.display_name}</span>
-              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{user.role}</span>
-              <a
-                href="/schedules"
-                className="text-sm text-blue-600 hover:text-blue-800"
-              >
-                My Schedules
-              </a>
-              {user.role === 'admin' && (
-                <>
-                  <a
-                    href="/admin"
-                    className="text-sm text-blue-600 hover:text-blue-800"
-                  >
-                    Admin
-                  </a>
-                  <a
-                    href="/admin/requests"
-                    className="text-sm text-blue-600 hover:text-blue-800"
-                  >
-                    Requests
-                  </a>
-                </>
-              )}
-              {(user.role === 'auditor' || user.role === 'admin') && (
-                <a
-                  href="/auditor"
-                  className="text-sm text-blue-600 hover:text-blue-800"
-                >
-                  Audit
-                </a>
-              )}
-              <button
-                onClick={handleLogout}
-                className="text-sm text-gray-600 hover:text-gray-900"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <Header />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">

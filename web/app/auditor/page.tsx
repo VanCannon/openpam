@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { AuditLog } from '@/types'
+import Header from '@/components/header'
 
 export default function AuditorPage() {
     const { user, loading } = useAuth()
@@ -76,6 +77,7 @@ export default function AuditorPage() {
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+            <Header />
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 {/* Header */}
                 <div className="mb-8 flex justify-between items-center">
@@ -87,8 +89,8 @@ export default function AuditorPage() {
                         <button
                             onClick={() => setFilter('all')}
                             className={`px-4 py-2 rounded-lg transition-colors ${filter === 'all'
-                                    ? 'bg-indigo-600 text-white'
-                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                                 }`}
                         >
                             All Sessions
@@ -96,8 +98,8 @@ export default function AuditorPage() {
                         <button
                             onClick={() => setFilter('active')}
                             className={`px-4 py-2 rounded-lg transition-colors ${filter === 'active'
-                                    ? 'bg-indigo-600 text-white'
-                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                                 }`}
                         >
                             Active ({sessions.filter(s => s.session_status === 'active').length})
@@ -105,8 +107,8 @@ export default function AuditorPage() {
                         <button
                             onClick={() => setFilter('completed')}
                             className={`px-4 py-2 rounded-lg transition-colors ${filter === 'completed'
-                                    ? 'bg-indigo-600 text-white'
-                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                                 }`}
                         >
                             Completed

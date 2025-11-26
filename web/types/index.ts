@@ -68,6 +68,9 @@ export interface ApiResponse<T> {
 
 export interface ListResponse<T> {
   items?: T[]
+  targets?: T[]
+  credentials?: T[]
+  schedules?: T[]
   logs?: T[]
   sessions?: T[]
   total?: number

@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { Target } from '@/types'
 import { Schedule } from '@/types/schedule'
+import Header from '@/components/header'
 
 export default function ScheduleRequestsPage() {
     const { user, loading } = useAuth()
@@ -142,6 +143,7 @@ export default function ScheduleRequestsPage() {
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+            <Header />
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 {/* Header */}
                 <div className="mb-8 flex justify-between items-center">
@@ -153,8 +155,8 @@ export default function ScheduleRequestsPage() {
                         <button
                             onClick={() => setFilter('pending')}
                             className={`px-4 py-2 rounded-lg transition-colors ${filter === 'pending'
-                                    ? 'bg-indigo-600 text-white'
-                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                                 }`}
                         >
                             Pending ({schedules.filter(s => s.approval_status === 'pending').length})
@@ -162,8 +164,8 @@ export default function ScheduleRequestsPage() {
                         <button
                             onClick={() => setFilter('all')}
                             className={`px-4 py-2 rounded-lg transition-colors ${filter === 'all'
-                                    ? 'bg-indigo-600 text-white'
-                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                                 }`}
                         >
                             All Schedules

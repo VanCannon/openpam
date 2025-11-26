@@ -86,6 +86,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		userRepo,
 		log,
 		cfg.DevMode,
+		cfg.Server.FrontendURL,
 	)
 
 	targetHandler := handlers.NewTargetHandler(targetRepo, log)

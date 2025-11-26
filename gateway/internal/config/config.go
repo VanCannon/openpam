@@ -27,6 +27,7 @@ type ServerConfig struct {
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
+	FrontendURL  string
 }
 
 // DatabaseConfig holds database connection configuration
@@ -85,6 +86,7 @@ func Load() (*Config, error) {
 			ReadTimeout:  getEnvDuration("SERVER_READ_TIMEOUT", 15*time.Second),
 			WriteTimeout: getEnvDuration("SERVER_WRITE_TIMEOUT", 15*time.Second),
 			IdleTimeout:  getEnvDuration("SERVER_IDLE_TIMEOUT", 60*time.Second),
+			FrontendURL:  getEnv("FRONTEND_URL", "http://localhost:3000"),
 		},
 		Database: DatabaseConfig{
 			Host:            getEnv("DB_HOST", "localhost"),

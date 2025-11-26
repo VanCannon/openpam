@@ -6,6 +6,7 @@ import { AuditLog } from '@/types'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import Header from '@/components/header'
 
 export default function AuditPage() {
   const { user, loading } = useAuth()
@@ -55,19 +56,7 @@ export default function AuditPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <Link href="/admin" className="text-2xl font-bold text-gray-900">OpenPAM</Link>
-              <span className="ml-4 text-sm text-gray-500">/ Audit Logs</span>
-            </div>
-            <div className="flex items-center">
-              <Link href="/admin" className="text-sm text-blue-600 hover:text-blue-800">Back to Admin</Link>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <Header />
 
       <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">
@@ -130,8 +119,8 @@ export default function AuditPage() {
                           <Link
                             href={`/admin/audit/${log.id}/play`}
                             className={`inline-flex items-center gap-2 ${log.session_status === 'active'
-                                ? 'text-red-600 hover:text-red-900 font-semibold'
-                                : 'text-indigo-600 hover:text-indigo-900'
+                              ? 'text-red-600 hover:text-red-900 font-semibold'
+                              : 'text-indigo-600 hover:text-indigo-900'
                               }`}
                           >
                             {log.session_status === 'active' && (
