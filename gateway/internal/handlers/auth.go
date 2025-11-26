@@ -353,21 +353,60 @@ func parseUUID(s string) (uuid.UUID, error) {
 func (h *AuthHandler) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	h.logger.Warn("Development mode: auto-logging in as test user", nil)
+	// Get role from query parameter (default to user)
+	role := r.URL.Query().Get("role")
+	if role == "" {
+		role = "user"
+	}
+
+	// Validate role
+	if role != "admin" && role != "user" && role != "auditor" {
+		http.Error(w, "Invalid role. Use: admin, user, or auditor", http.StatusBadRequest)
+		return
+	}
+
+	// Define test users based on role
+	var entraID, email, displayName string
+	switch role {
+	case "admin":
+		entraID = "dev-admin-123"
+		email = "admin@example.com"
+		displayName = "Admin User"
+	case "auditor":
+		entraID = "dev-auditor-123"
+		email = "auditor@example.com"
+		displayName = "Auditor User"
+	default: // user
+		entraID = "dev-user-123"
+		email = "dev@example.com"
+		displayName = "Development User"
+	}
+
+	h.logger.Warn("Development mode: auto-logging in as test user", map[string]interface{}{
+		"role":  role,
+		"email": email,
+	})
 
 	// Get or create dev test user
-	user, err := h.userRepo.GetOrCreate(
-		ctx,
-		"dev-user-123",
-		"dev@example.com",
-		"Development User",
-	)
+	user, err := h.userRepo.GetOrCreate(ctx, entraID, email, displayName)
 	if err != nil {
 		h.logger.Error("Failed to get or create dev user", map[string]interface{}{
 			"error": err.Error(),
 		})
 		http.Error(w, "Failed to create dev user", http.StatusInternalServerError)
 		return
+	}
+
+	// Update user role if it doesn't match
+	if user.Role != role {
+		user.Role = role
+		if err := h.userRepo.Update(ctx, user); err != nil {
+			h.logger.Error("Failed to update user role", map[string]interface{}{
+				"error": err.Error(),
+			})
+			http.Error(w, "Failed to update user role", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Generate JWT token
@@ -413,23 +452,18 @@ func (h *AuthHandler) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set cookie with JWT token
+	// Set cookie
 	http.SetCookie(w, &http.Cookie{
-		Name:     "openpam_token",
+		Name:     "session_token",
 		Value:    jwtToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false, // Dev mode typically doesn't use HTTPS
+		Secure:   false, // Set to true in production with HTTPS
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400, // 24 hours
 	})
 
-	h.logger.Info("Dev user logged in", map[string]interface{}{
-		"user_id": user.ID.String(),
-		"email":   user.Email,
-	})
-
-	// Redirect back to frontend with token in query (for frontend to pick up)
-	redirectURL := fmt.Sprintf("http://localhost:3000/auth/callback?token=%s", jwtToken)
+	// Redirect to callback with token
+	redirectURL := fmt.Sprintf("/auth/callback?token=%s", jwtToken)
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }

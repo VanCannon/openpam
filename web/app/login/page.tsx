@@ -1,11 +1,11 @@
 'use client'
 
-import { useAuth } from '@/lib/auth-context'
-import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuth } from '@/lib/auth-context'
 
 export default function LoginPage() {
-  const { user, loading, login } = useAuth()
+  const { user, loading } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
@@ -13,6 +13,10 @@ export default function LoginPage() {
       router.push('/dashboard')
     }
   }, [user, loading, router])
+
+  const handleDevLogin = (role: 'admin' | 'user' | 'auditor') => {
+    window.location.href = `/api/v1/auth/login?role=${role}`
+  }
 
   if (loading) {
     return (
@@ -23,24 +27,68 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-md">
-        <div className="text-center">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">OpenPAM</h1>
-          <p className="text-gray-600 mb-8">Privileged Access Management</p>
+    <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-md w-full">
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">OpenPAM</h1>
+          <p className="text-gray-600 dark:text-gray-400">Privileged Access Management</p>
         </div>
 
-        <div className="space-y-4">
+        <div className="mb-6">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Development Mode</h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            Select a role to login as:
+          </p>
+        </div>
+
+        <div className="space-y-3">
           <button
-            onClick={login}
-            className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            onClick={() => handleDevLogin('admin')}
+            className="w-full px-6 py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors text-left"
           >
-            Sign in with Microsoft
+            <div className="flex items-center">
+              <span className="text-2xl mr-3">👑</span>
+              <div>
+                <div className="font-semibold">Admin</div>
+                <div className="text-sm opacity-90">admin@example.com</div>
+                <div className="text-xs opacity-75 mt-1">Full system access</div>
+              </div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => handleDevLogin('user')}
+            className="w-full px-6 py-4 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-left"
+          >
+            <div className="flex items-center">
+              <span className="text-2xl mr-3">👤</span>
+              <div>
+                <div className="font-semibold">User</div>
+                <div className="text-sm opacity-90">dev@example.com</div>
+                <div className="text-xs opacity-75 mt-1">Request and use sessions</div>
+              </div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => handleDevLogin('auditor')}
+            className="w-full px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-left"
+          >
+            <div className="flex items-center">
+              <span className="text-2xl mr-3">🔍</span>
+              <div>
+                <div className="font-semibold">Auditor</div>
+                <div className="text-sm opacity-90">auditor@example.com</div>
+                <div className="text-xs opacity-75 mt-1">View sessions and logs</div>
+              </div>
+            </div>
           </button>
         </div>
 
-        <div className="text-center text-sm text-gray-500">
-          <p>Secure access to SSH and RDP targets</p>
+        <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+          <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+            Development mode only - Production uses EntraID authentication
+          </p>
         </div>
       </div>
     </div>
