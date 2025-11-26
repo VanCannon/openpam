@@ -25,6 +25,18 @@ export default function AdminPage() {
 
   const menuItems = [
     {
+      title: 'Users',
+      description: 'Manage users and assign roles',
+      href: '/admin/users',
+      icon: '👥',
+    },
+    {
+      title: 'Schedule Requests',
+      description: 'Approve or reject access requests',
+      href: '/admin/requests',
+      icon: '📅',
+    },
+    {
       title: 'Zones',
       description: 'Manage hub and satellite zones',
       href: '/admin/zones',

@@ -110,12 +110,37 @@ export default function DashboardPage() {
             </div>
             <div className="flex items-center space-x-4">
               <span className="text-sm text-gray-700">{user.display_name}</span>
+              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{user.role}</span>
               <a
-                href="/admin"
+                href="/schedules"
                 className="text-sm text-blue-600 hover:text-blue-800"
               >
-                Admin
+                My Schedules
               </a>
+              {user.role === 'admin' && (
+                <>
+                  <a
+                    href="/admin"
+                    className="text-sm text-blue-600 hover:text-blue-800"
+                  >
+                    Admin
+                  </a>
+                  <a
+                    href="/admin/requests"
+                    className="text-sm text-blue-600 hover:text-blue-800"
+                  >
+                    Requests
+                  </a>
+                </>
+              )}
+              {(user.role === 'auditor' || user.role === 'admin') && (
+                <a
+                  href="/auditor"
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
+                  Audit
+                </a>
+              )}
               <button
                 onClick={handleLogout}
                 className="text-sm text-gray-600 hover:text-gray-900"
@@ -152,8 +177,8 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-lg font-semibold text-gray-900">{target.name}</h3>
                   <span className={`px-2 py-1 text-xs font-semibold rounded ${target.protocol === 'ssh'
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-blue-100 text-blue-800'
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-blue-100 text-blue-800'
                     }`}>
                     {target.protocol.toUpperCase()}
                   </span>
