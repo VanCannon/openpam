@@ -12,6 +12,7 @@ import (
 	"github.com/bvanc/openpam/gateway/internal/handlers"
 	"github.com/bvanc/openpam/gateway/internal/logger"
 	"github.com/bvanc/openpam/gateway/internal/middleware"
+	"github.com/bvanc/openpam/gateway/internal/models"
 	"github.com/bvanc/openpam/gateway/internal/rdp"
 	"github.com/bvanc/openpam/gateway/internal/repository"
 	"github.com/bvanc/openpam/gateway/internal/ssh"
@@ -29,6 +30,7 @@ type Server struct {
 	authHandler       *handlers.AuthHandler
 	targetHandler     *handlers.TargetHandler
 	connectionHandler *handlers.ConnectionHandler
+	scheduleHandler   *handlers.ScheduleHandler
 	tokenManager      *auth.TokenManager
 	sessionStore      auth.SessionStore
 }
@@ -102,6 +104,8 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		log,
 	)
 
+	scheduleHandler := handlers.NewScheduleHandler(log)
+
 	s := &Server{
 		config:            cfg,
 		db:                db,
@@ -111,6 +115,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		authHandler:       authHandler,
 		targetHandler:     targetHandler,
 		connectionHandler: connectionHandler,
+		scheduleHandler:   scheduleHandler,
 		tokenManager:      tokenManager,
 		sessionStore:      sessionStore,
 	}
@@ -178,6 +183,15 @@ func (s *Server) setupRoutes() {
 	s.router.Handle("/api/v1/auth/me", s.requireAuth(s.authHandler.HandleMe()))
 	s.router.Handle("/api/v1/targets", s.requireAuth(s.targetHandler.HandleTargets()))
 
+	// Schedule routes
+	// Users can request schedules
+	s.router.Handle("/api/v1/schedules/request", s.requireAuth(s.scheduleHandler.HandleRequestSchedule()))
+	// Anyone authenticated can list schedules (filtered by role in handler)
+	s.router.Handle("/api/v1/schedules", s.requireAuth(s.scheduleHandler.HandleListSchedules()))
+	// Admin-only routes for approval/rejection
+	s.router.Handle("/api/v1/schedules/approve", s.requireRole(models.RoleAdmin, s.scheduleHandler.HandleApproveSchedule()))
+	s.router.Handle("/api/v1/schedules/reject", s.requireRole(models.RoleAdmin, s.scheduleHandler.HandleRejectSchedule()))
+
 	// WebSocket endpoint for connections (auth required)
 	s.router.Handle("/api/ws/connect/", s.requireAuth(s.connectionHandler.HandleConnect()))
 }
@@ -185,6 +199,13 @@ func (s *Server) setupRoutes() {
 // requireAuth wraps a handler with authentication middleware
 func (s *Server) requireAuth(handler http.HandlerFunc) http.Handler {
 	return middleware.RequireAuth(s.tokenManager, s.logger)(handler)
+}
+
+// requireRole wraps a handler with authentication and role-based access control
+func (s *Server) requireRole(role string, handler http.HandlerFunc) http.Handler {
+	return middleware.RequireAuth(s.tokenManager, s.logger)(
+		middleware.RequireRole(role, s.logger)(handler),
+	)
 }
 
 // Start starts the HTTP server
