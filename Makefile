@@ -21,6 +21,16 @@ migrate-down:
 migrate-status:
 	cd gateway && go run cmd/migrate/main.go -action=status
 
+gateway-dev:
+	@echo "Starting gateway in development mode..."
+	cd gateway && DEV_MODE=true go run cmd/server/main.go
+
+kill-gateway:
+	@echo "Killing any running gateway processes..."
+	@pkill -f "cmd/server/main.go" || echo "No gateway processes found"
+	@pkill -f "gateway.*server" || true
+	@echo "Gateway processes stopped"
+
 run:
 	cd gateway && go run cmd/server/main.go
 
