@@ -454,7 +454,7 @@ func (h *AuthHandler) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Set cookie
 	http.SetCookie(w, &http.Cookie{
-		Name:     "session_token",
+		Name:     "openpam_token",
 		Value:    jwtToken,
 		Path:     "/",
 		HttpOnly: true,
