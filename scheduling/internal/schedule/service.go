@@ -32,6 +32,7 @@ func (s *Service) CreateSchedule(req *CreateScheduleRequest, createdBy string) (
 		RecurrenceRule: req.RecurrenceRule,
 		Timezone:       req.Timezone,
 		Status:         "pending",
+		ApprovalStatus: "pending", // All new schedules start as pending approval
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 		Metadata:       req.Metadata,
@@ -46,14 +47,14 @@ func (s *Service) CreateSchedule(req *CreateScheduleRequest, createdBy string) (
 	query := `
 		INSERT INTO schedules (
 			id, user_id, target_id, start_time, end_time, recurrence_rule,
-			timezone, status, created_by, created_at, updated_at, metadata
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			timezone, status, approval_status, created_by, created_at, updated_at, metadata
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 
 	_, err := s.db.Exec(query,
 		schedule.ID, schedule.UserID, schedule.TargetID, schedule.StartTime,
 		schedule.EndTime, schedule.RecurrenceRule, schedule.Timezone, schedule.Status,
-		schedule.CreatedBy, schedule.CreatedAt, schedule.UpdatedAt, metadataJSON,
+		schedule.ApprovalStatus, schedule.CreatedBy, schedule.CreatedAt, schedule.UpdatedAt, metadataJSON,
 	)
 
 	if err != nil {
@@ -61,9 +62,10 @@ func (s *Service) CreateSchedule(req *CreateScheduleRequest, createdBy string) (
 	}
 
 	s.logger.Info("Schedule created", map[string]interface{}{
-		"schedule_id": schedule.ID,
-		"user_id":     schedule.UserID,
-		"target_id":   schedule.TargetID,
+		"schedule_id":     schedule.ID,
+		"user_id":         schedule.UserID,
+		"target_id":       schedule.TargetID,
+		"approval_status": schedule.ApprovalStatus,
 	})
 
 	return schedule, nil
@@ -72,11 +74,13 @@ func (s *Service) CreateSchedule(req *CreateScheduleRequest, createdBy string) (
 func (s *Service) GetSchedule(id string) (*Schedule, error) {
 	var schedule Schedule
 	var metadataJSON []byte
-	var recurrenceRule, createdBy sql.NullString
+	var recurrenceRule, createdBy, rejectionReason, approvedBy sql.NullString
+	var approvedAt sql.NullTime
 
 	query := `
 		SELECT id, user_id, target_id, start_time, end_time, recurrence_rule,
-		       timezone, status, created_by, created_at, updated_at, metadata
+		       timezone, status, approval_status, rejection_reason, approved_by, approved_at,
+		       created_by, created_at, updated_at, metadata
 		FROM schedules
 		WHERE id = $1
 	`
@@ -84,6 +88,7 @@ func (s *Service) GetSchedule(id string) (*Schedule, error) {
 	err := s.db.QueryRow(query, id).Scan(
 		&schedule.ID, &schedule.UserID, &schedule.TargetID, &schedule.StartTime,
 		&schedule.EndTime, &recurrenceRule, &schedule.Timezone, &schedule.Status,
+		&schedule.ApprovalStatus, &rejectionReason, &approvedBy, &approvedAt,
 		&createdBy, &schedule.CreatedAt, &schedule.UpdatedAt, &metadataJSON,
 	)
 
@@ -96,6 +101,15 @@ func (s *Service) GetSchedule(id string) (*Schedule, error) {
 	}
 	if createdBy.Valid {
 		schedule.CreatedBy = &createdBy.String
+	}
+	if rejectionReason.Valid {
+		schedule.RejectionReason = &rejectionReason.String
+	}
+	if approvedBy.Valid {
+		schedule.ApprovedBy = &approvedBy.String
+	}
+	if approvedAt.Valid {
+		schedule.ApprovedAt = &approvedAt.Time
 	}
 	if len(metadataJSON) > 0 {
 		json.Unmarshal(metadataJSON, &schedule.Metadata)
@@ -179,7 +193,8 @@ func (s *Service) DeleteSchedule(id string) error {
 func (s *Service) ListSchedules(req *ListSchedulesRequest) ([]*Schedule, error) {
 	query := `
 		SELECT id, user_id, target_id, start_time, end_time, recurrence_rule,
-		       timezone, status, created_by, created_at, updated_at, metadata
+		       timezone, status, approval_status, rejection_reason, approved_by, approved_at,
+		       created_by, created_at, updated_at, metadata
 		FROM schedules
 		WHERE 1=1
 	`
@@ -201,6 +216,12 @@ func (s *Service) ListSchedules(req *ListSchedulesRequest) ([]*Schedule, error) 
 	if req.Status != nil {
 		query += fmt.Sprintf(" AND status = $%d", argCount)
 		args = append(args, *req.Status)
+		argCount++
+	}
+
+	if req.ApprovalStatus != nil {
+		query += fmt.Sprintf(" AND approval_status = $%d", argCount)
+		args = append(args, *req.ApprovalStatus)
 		argCount++
 	}
 
@@ -227,15 +248,18 @@ func (s *Service) ListSchedules(req *ListSchedulesRequest) ([]*Schedule, error) 
 	for rows.Next() {
 		var schedule Schedule
 		var metadataJSON []byte
-		var recurrenceRule, createdBy sql.NullString
+		var recurrenceRule, createdBy, rejectionReason, approvedBy sql.NullString
+		var approvedAt sql.NullTime
 
 		err := rows.Scan(
 			&schedule.ID, &schedule.UserID, &schedule.TargetID, &schedule.StartTime,
 			&schedule.EndTime, &recurrenceRule, &schedule.Timezone, &schedule.Status,
+			&schedule.ApprovalStatus, &rejectionReason, &approvedBy, &approvedAt,
 			&createdBy, &schedule.CreatedAt, &schedule.UpdatedAt, &metadataJSON,
 		)
+
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to scan schedule: %w", err)
 		}
 
 		if recurrenceRule.Valid {
@@ -243,6 +267,15 @@ func (s *Service) ListSchedules(req *ListSchedulesRequest) ([]*Schedule, error) 
 		}
 		if createdBy.Valid {
 			schedule.CreatedBy = &createdBy.String
+		}
+		if rejectionReason.Valid {
+			schedule.RejectionReason = &rejectionReason.String
+		}
+		if approvedBy.Valid {
+			schedule.ApprovedBy = &approvedBy.String
+		}
+		if approvedAt.Valid {
+			schedule.ApprovedAt = &approvedAt.Time
 		}
 		if len(metadataJSON) > 0 {
 			json.Unmarshal(metadataJSON, &schedule.Metadata)
@@ -262,6 +295,7 @@ func (s *Service) CheckAccess(userID, targetID string) (*ScheduleCheckResponse, 
 		       timezone, status, created_by, created_at, updated_at, metadata
 		FROM schedules
 		WHERE user_id = $1 AND target_id = $2 AND status = 'active'
+		  AND approval_status = 'approved'
 		  AND start_time <= $3 AND end_time >= $3
 		LIMIT 1
 	`
@@ -358,11 +392,11 @@ func (s *Service) GetUpcomingSchedules(window time.Duration) ([]*Schedule, error
 func (s *Service) UpdateScheduleStatuses() error {
 	now := time.Now()
 
-	// Activate pending schedules that have started
+	// Activate pending schedules that have started AND are approved
 	activateQuery := `
 		UPDATE schedules
 		SET status = 'active', updated_at = $1
-		WHERE status = 'pending' AND start_time <= $1
+		WHERE status = 'pending' AND approval_status = 'approved' AND start_time <= $1
 	`
 	_, err := s.db.Exec(activateQuery, now)
 	if err != nil {
