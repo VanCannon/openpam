@@ -93,6 +93,24 @@ const (
 	ProtocolRDP = "rdp"
 )
 
+// SystemAuditLog records system events (logins, user changes, etc.)
+type SystemAuditLog struct {
+	ID           uuid.UUID       `json:"id" db:"id"`
+	Timestamp    time.Time       `json:"timestamp" db:"timestamp"`
+	EventType    string          `json:"event_type" db:"event_type"`
+	UserID       uuid.NullUUID   `json:"user_id,omitempty" db:"user_id"`
+	TargetUserID uuid.NullUUID   `json:"target_user_id,omitempty" db:"target_user_id"`
+	ResourceType *string         `json:"resource_type,omitempty" db:"resource_type"`
+	ResourceID   uuid.NullUUID   `json:"resource_id,omitempty" db:"resource_id"`
+	ResourceName *string         `json:"resource_name,omitempty" db:"resource_name"`
+	Action       string          `json:"action" db:"action"`
+	Status       string          `json:"status" db:"status"`
+	IPAddress    *string         `json:"ip_address,omitempty" db:"ip_address"`
+	UserAgent    *string         `json:"user_agent,omitempty" db:"user_agent"`
+	Details      *string         `json:"details,omitempty" db:"details"` // JSONB stored as string
+	CreatedAt    time.Time       `json:"created_at" db:"created_at"`
+}
+
 // Role constants
 const (
 	RoleAdmin   = "admin"
@@ -105,4 +123,33 @@ const (
 	ApprovalStatusPending  = "pending"
 	ApprovalStatusApproved = "approved"
 	ApprovalStatusRejected = "rejected"
+)
+
+// System Audit Event Types
+const (
+	EventTypeLoginSuccess      = "login_success"
+	EventTypeLoginFailed       = "login_failed"
+	EventTypeLogout            = "logout"
+	EventTypeUserCreated       = "user_created"
+	EventTypeUserUpdated       = "user_updated"
+	EventTypeUserDeleted       = "user_deleted"
+	EventTypeTargetCreated     = "target_created"
+	EventTypeTargetUpdated     = "target_updated"
+	EventTypeTargetDeleted     = "target_deleted"
+	EventTypeCredentialCreated = "credential_created"
+	EventTypeCredentialUpdated = "credential_updated"
+	EventTypeCredentialDeleted = "credential_deleted"
+	EventTypeSessionStarted    = "session_started"
+	EventTypeSessionEnded      = "session_ended"
+	EventTypePermissionChanged = "permission_changed"
+	EventTypeZoneCreated       = "zone_created"
+	EventTypeZoneUpdated       = "zone_updated"
+	EventTypeZoneDeleted       = "zone_deleted"
+)
+
+// Audit Status constants
+const (
+	AuditStatusSuccess = "success"
+	AuditStatusFailure = "failure"
+	AuditStatusPending = "pending"
 )

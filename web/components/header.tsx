@@ -59,6 +59,12 @@ export default function Header() {
                                 >
                                     Requests
                                 </Link>
+                                <Link
+                                    href="/admin/audit"
+                                    className={`text-sm ${isActive('/admin/audit') ? 'text-gray-900 font-medium' : 'text-blue-600 hover:text-blue-800'}`}
+                                >
+                                    Audit Logs
+                                </Link>
                             </>
                         )}
 
@@ -67,7 +73,7 @@ export default function Header() {
                                 href="/auditor"
                                 className={`text-sm ${isActive('/auditor') ? 'text-gray-900 font-medium' : 'text-blue-600 hover:text-blue-800'}`}
                             >
-                                Audit
+                                Session Audit
                             </Link>
                         )}
 

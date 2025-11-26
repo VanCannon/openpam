@@ -61,6 +61,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 	targetRepo := repository.NewTargetRepository(db)
 	credRepo := repository.NewCredentialRepository(db)
 	auditRepo := repository.NewAuditLogRepository(db)
+	systemAuditRepo := repository.NewSystemAuditLogRepository(db)
 
 	// Initialize protocol handlers
 	sshRecorder, err := ssh.NewRecorder("./recordings")
@@ -84,6 +85,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		sessionStore,
 		stateStore,
 		userRepo,
+		systemAuditRepo,
 		log,
 		cfg.DevMode,
 		cfg.Server.FrontendURL,
@@ -93,6 +95,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 	zoneHandler := handlers.NewZoneHandler(zoneRepo, log)
 	credHandler := handlers.NewCredentialHandler(credRepo, log)
 	auditHandler := handlers.NewAuditLogHandler(auditRepo, sshRecorder, log)
+	systemAuditHandler := handlers.NewSystemAuditLogHandler(systemAuditRepo, log)
 	monitorHandler := handlers.NewMonitorHandler(auditRepo, userRepo, sshMonitor, sshRecorder, log, cfg.DevMode)
 
 	connectionHandler := handlers.NewConnectionHandler(
@@ -152,6 +155,10 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 	s.router.Handle("/api/v1/audit-logs/user", s.requireAuth(auditHandler.HandleListByUser()))
 	s.router.Handle("/api/v1/audit-logs/active", s.requireAuth(auditHandler.HandleListActive()))
 	s.router.Handle("/api/v1/audit-logs/recording", s.requireAuth(auditHandler.HandleGetRecording()))
+
+	// System audit logs (admin and auditor only)
+	s.router.Handle("/api/v1/system-audit-logs", s.requireAuth(systemAuditHandler.HandleList()))
+	s.router.Handle("/api/v1/system-audit-logs/", s.requireAuth(systemAuditHandler.HandleGet()))
 
 	// Live session monitoring WebSocket endpoint
 	s.router.Handle("/api/ws/monitor/", s.requireAuth(monitorHandler.HandleMonitor()))

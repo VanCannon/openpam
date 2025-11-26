@@ -60,6 +60,23 @@ export interface AuditLog {
   created_at: string
 }
 
+export interface SystemAuditLog {
+  id: string
+  timestamp: string
+  event_type: string
+  user_id?: string
+  target_user_id?: string
+  resource_type?: string
+  resource_id?: string
+  resource_name?: string
+  action: string
+  status: string
+  ip_address?: string
+  user_agent?: string
+  details?: Record<string, any>
+  created_at: string
+}
+
 export interface ApiResponse<T> {
   data?: T
   error?: string

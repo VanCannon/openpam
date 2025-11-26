@@ -62,9 +62,177 @@ Returns information about the authenticated user.
   "id": "uuid",
   "email": "user@example.com",
   "display_name": "User Name",
-  "enabled": true
+  "role": "admin",
+  "enabled": true,
+  "created_at": "2025-01-23T19:00:00Z",
+  "updated_at": "2025-01-23T19:00:00Z",
+  "last_login_at": "2025-01-23T19:00:00Z"
 }
 ```
+
+---
+
+### Dev Login (Development Only)
+`GET /api/v1/auth/login?role=admin`
+
+Development-only endpoint for quick role-based login without OAuth.
+
+**Query Parameters:**
+- `role`: `admin`, `user`, or `auditor` (default: `user`)
+
+**Response:** Redirect to frontend with JWT token
+
+---
+
+## Users
+
+### List Users
+`GET /api/v1/users`
+
+Lists all users (admin only).
+
+**Response:**
+```json
+{
+  "users": [
+    {
+      "id": "uuid",
+      "email": "user@example.com",
+      "display_name": "User Name",
+      "role": "user",
+      "enabled": true,
+      "created_at": "2025-01-23T19:00:00Z",
+      "updated_at": "2025-01-23T19:00:00Z",
+      "last_login_at": "2025-01-23T19:00:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+---
+
+### Update User Role
+`PUT /api/v1/users/{user_id}/role`
+
+Updates a user's role (admin only).
+
+**Body:**
+```json
+{
+  "role": "admin"
+}
+```
+
+**Response:** Updated user object
+
+---
+
+### Update User Status
+`PUT /api/v1/users/{user_id}/enabled`
+
+Enables or disables a user (admin only).
+
+**Body:**
+```json
+{
+  "enabled": false
+}
+```
+
+**Response:** Updated user object
+
+---
+
+## Schedules
+
+### List Schedules
+`GET /api/v1/schedules?approval_status=pending`
+
+Lists schedules for the current user, or all schedules if admin.
+
+**Query Parameters:**
+- `approval_status`: Filter by status (`pending`, `approved`, `rejected`)
+
+**Response:**
+```json
+{
+  "schedules": [
+    {
+      "id": "uuid",
+      "user_id": "uuid",
+      "target_id": "uuid",
+      "start_time": "2025-01-24T10:00:00Z",
+      "end_time": "2025-01-24T12:00:00Z",
+      "timezone": "America/Chicago",
+      "approval_status": "pending",
+      "status": "scheduled",
+      "approved_by": null,
+      "rejection_reason": null,
+      "created_at": "2025-01-23T19:00:00Z",
+      "updated_at": "2025-01-23T19:00:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+---
+
+### Request Schedule
+`POST /api/v1/schedules/request`
+
+Requests scheduled access to a target.
+
+**Body:**
+```json
+{
+  "user_id": "uuid",
+  "target_id": "uuid",
+  "start_time": "2025-01-24T10:00:00Z",
+  "end_time": "2025-01-24T12:00:00Z",
+  "timezone": "America/Chicago"
+}
+```
+
+**Response:** `201 Created` with schedule object
+
+---
+
+### Approve Schedule
+`POST /api/v1/schedules/approve`
+
+Approves a schedule request (admin only).
+
+**Body:**
+```json
+{
+  "schedule_id": "uuid",
+  "start_time": "2025-01-24T10:00:00Z",
+  "end_time": "2025-01-24T12:00:00Z"
+}
+```
+
+**Note:** `start_time` and `end_time` are optional. If provided, they override the requested times.
+
+**Response:** Updated schedule object
+
+---
+
+### Reject Schedule
+`POST /api/v1/schedules/reject`
+
+Rejects a schedule request (admin only).
+
+**Body:**
+```json
+{
+  "schedule_id": "uuid",
+  "reason": "Conflicting maintenance window"
+}
+```
+
+**Response:** Updated schedule object
 
 ---
 
@@ -391,6 +559,44 @@ const ws = new WebSocket(
   { headers: { 'Authorization': `Bearer ${token}` } }
 );
 ```
+
+---
+
+### Monitor Live Session
+`WS /api/ws/monitor/{session_id}`
+
+Monitors an active session in real-time (admin/auditor only).
+
+**Path Parameters:**
+- `session_id`: UUID of the audit log/session
+
+**Headers:**
+- `Authorization: Bearer <token>` or Cookie with JWT
+
+**WebSocket Protocol:**
+- Receives real-time session data as it's being recorded
+- Text/binary frames contain terminal output
+
+**Example:**
+```javascript
+const ws = new WebSocket(
+  'wss://gateway.example.com/api/ws/monitor/session-uuid',
+  null,
+  { headers: { 'Authorization': `Bearer ${token}` } }
+);
+```
+
+---
+
+### Get Session Recording
+`GET /api/v1/audit-logs/{session_id}/recording`
+
+Retrieves the recorded session data for playback.
+
+**Path Parameters:**
+- `session_id`: UUID of the audit log/session
+
+**Response:** Raw session recording data (text format)
 
 ---
 

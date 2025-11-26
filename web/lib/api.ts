@@ -1,4 +1,4 @@
-import { User, Zone, Target, Credential, AuditLog, ListResponse } from '@/types'
+import { User, Zone, Target, Credential, AuditLog, SystemAuditLog, ListResponse } from '@/types'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -187,6 +187,10 @@ class ApiClient {
     return this.request<AuditLog>(`/api/v1/audit-logs/${id}`)
   }
 
+  async getActiveSessions(): Promise<{ sessions: AuditLog[] }> {
+    return this.request<{ sessions: AuditLog[] }>('/api/v1/audit-logs/active')
+  }
+
   async getRecording(sessionId: string): Promise<string> {
     const headers: Record<string, string> = {}
     if (this.token) {
@@ -205,6 +209,22 @@ class ApiClient {
     }
 
     return response.text()
+  }
+
+  // System Audit Logs
+  async listSystemAuditLogs(params?: { event_type?: string; user_id?: string; limit?: number; offset?: number }): Promise<ListResponse<SystemAuditLog>> {
+    const query = new URLSearchParams()
+    if (params?.event_type) query.set('event_type', params.event_type)
+    if (params?.user_id) query.set('user_id', params.user_id)
+    if (params?.limit) query.set('limit', params.limit.toString())
+    if (params?.offset) query.set('offset', params.offset.toString())
+
+    const queryString = query.toString()
+    return this.request<ListResponse<SystemAuditLog>>(`/api/v1/system-audit-logs${queryString ? '?' + queryString : ''}`)
+  }
+
+  async getSystemAuditLog(id: string): Promise<SystemAuditLog> {
+    return this.request<SystemAuditLog>(`/api/v1/system-audit-logs/${id}`)
   }
 
   // WebSocket URL for connections

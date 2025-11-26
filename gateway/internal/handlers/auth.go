@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,20 +9,22 @@ import (
 
 	"github.com/bvanc/openpam/gateway/internal/auth"
 	"github.com/bvanc/openpam/gateway/internal/logger"
+	"github.com/bvanc/openpam/gateway/internal/models"
 	"github.com/bvanc/openpam/gateway/internal/repository"
 	"github.com/google/uuid"
 )
 
 // AuthHandler handles authentication-related requests
 type AuthHandler struct {
-	entraID      *auth.EntraIDClient
-	tokenManager *auth.TokenManager
-	sessionStore auth.SessionStore
-	stateStore   auth.StateStore
-	userRepo     *repository.UserRepository
-	logger       *logger.Logger
-	devMode      bool
-	frontendURL  string
+	entraID         *auth.EntraIDClient
+	tokenManager    *auth.TokenManager
+	sessionStore    auth.SessionStore
+	stateStore      auth.StateStore
+	userRepo        *repository.UserRepository
+	systemAuditRepo *repository.SystemAuditLogRepository
+	logger          *logger.Logger
+	devMode         bool
+	frontendURL     string
 }
 
 // NewAuthHandler creates a new authentication handler
@@ -31,19 +34,21 @@ func NewAuthHandler(
 	sessionStore auth.SessionStore,
 	stateStore auth.StateStore,
 	userRepo *repository.UserRepository,
+	systemAuditRepo *repository.SystemAuditLogRepository,
 	log *logger.Logger,
 	devMode bool,
 	frontendURL string,
 ) *AuthHandler {
 	return &AuthHandler{
-		entraID:      entraID,
-		tokenManager: tokenManager,
-		sessionStore: sessionStore,
-		stateStore:   stateStore,
-		userRepo:     userRepo,
-		logger:       log,
-		devMode:      devMode,
-		frontendURL:  frontendURL,
+		entraID:         entraID,
+		tokenManager:    tokenManager,
+		sessionStore:    sessionStore,
+		stateStore:      stateStore,
+		userRepo:        userRepo,
+		systemAuditRepo: systemAuditRepo,
+		logger:          log,
+		devMode:         devMode,
+		frontendURL:     frontendURL,
 	}
 }
 
@@ -128,6 +133,14 @@ func (h *AuthHandler) HandleCallback() http.HandlerFunc {
 			h.logger.Error("Failed to exchange code", map[string]interface{}{
 				"error": err.Error(),
 			})
+
+			// Log failed login attempt
+			clientIP := getClientIP(r)
+			h.logAuthEvent(ctx, models.EventTypeLoginFailed, nil, models.AuditStatusFailure, &clientIP, map[string]interface{}{
+				"reason": "failed_to_exchange_code",
+				"error":  err.Error(),
+			})
+
 			http.Error(w, "Failed to authenticate", http.StatusUnauthorized)
 			return
 		}
@@ -163,6 +176,14 @@ func (h *AuthHandler) HandleCallback() http.HandlerFunc {
 				"user_id": user.ID.String(),
 				"email":   user.Email,
 			})
+
+			// Log failed login attempt
+			clientIP := getClientIP(r)
+			h.logAuthEvent(ctx, models.EventTypeLoginFailed, &user.ID, models.AuditStatusFailure, &clientIP, map[string]interface{}{
+				"reason": "account_disabled",
+				"email":  user.Email,
+			})
+
 			http.Error(w, "Account disabled", http.StatusForbidden)
 			return
 		}
@@ -226,6 +247,14 @@ func (h *AuthHandler) HandleCallback() http.HandlerFunc {
 			"email":   user.Email,
 		})
 
+		// Log successful login
+		clientIP := getClientIP(r)
+		userAgent := r.UserAgent()
+		h.logAuthEvent(ctx, models.EventTypeLoginSuccess, &user.ID, models.AuditStatusSuccess, &clientIP, map[string]interface{}{
+			"email":      user.Email,
+			"user_agent": userAgent,
+		})
+
 		// Redirect to home page or return JSON
 		response := map[string]interface{}{
 			"success": true,
@@ -258,6 +287,13 @@ func (h *AuthHandler) HandleLogout() http.HandlerFunc {
 
 				h.logger.Info("User logged out", map[string]interface{}{
 					"user_id": claims.UserID,
+				})
+
+				// Log logout event
+				userID, _ := uuid.Parse(claims.UserID)
+				clientIP := getClientIP(r)
+				h.logAuthEvent(ctx, models.EventTypeLogout, &userID, models.AuditStatusSuccess, &clientIP, map[string]interface{}{
+					"email": claims.Email,
 				})
 			}
 		}
@@ -469,4 +505,44 @@ func (h *AuthHandler) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 	// Redirect to callback with token
 	redirectURL := fmt.Sprintf("%s/auth/callback?token=%s", h.frontendURL, jwtToken)
 	http.Redirect(w, r, redirectURL, http.StatusFound)
+}
+
+// logAuthEvent logs an authentication-related event to the system audit log
+func (h *AuthHandler) logAuthEvent(ctx context.Context, eventType string, userID *uuid.UUID, status string, ipAddress *string, details map[string]interface{}) {
+	if h.systemAuditRepo == nil {
+		return
+	}
+
+	err := h.systemAuditRepo.CreateSimple(ctx, eventType, userID, "authenticate", status, ipAddress, details)
+	if err != nil {
+		h.logger.Error("Failed to create system audit log", map[string]interface{}{
+			"error":      err.Error(),
+			"event_type": eventType,
+		})
+	}
+}
+
+// getClientIP extracts the client IP address from the request
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header first (in case of proxy)
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff != "" {
+		// X-Forwarded-For can contain multiple IPs, take the first one
+		ips := xff
+		for idx := 0; idx < len(ips); idx++ {
+			if ips[idx] == ',' {
+				return ips[:idx]
+			}
+		}
+		return ips
+	}
+
+	// Check X-Real-IP header
+	xri := r.Header.Get("X-Real-IP")
+	if xri != "" {
+		return xri
+	}
+
+	// Fall back to RemoteAddr
+	return r.RemoteAddr
 }
