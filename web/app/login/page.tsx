@@ -15,7 +15,8 @@ export default function LoginPage() {
   }, [user, loading, router])
 
   const handleDevLogin = (role: 'admin' | 'user' | 'auditor') => {
-    window.location.href = `/api/v1/auth/login?role=${role}`
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+    window.location.href = `${API_URL}/api/v1/auth/login?role=${role}`
   }
 
   if (loading) {
