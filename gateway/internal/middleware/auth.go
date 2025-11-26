@@ -16,6 +16,7 @@ const (
 	userIDKey      contextKey = "user_id"
 	userEmailKey   contextKey = "user_email"
 	displayNameKey contextKey = "display_name"
+	roleKey        contextKey = "role"
 )
 
 // RequireAuth returns a middleware that requires authentication
@@ -67,6 +68,7 @@ func RequireAuth(tokenManager *auth.TokenManager, log *logger.Logger) func(http.
 			ctx = context.WithValue(ctx, userIDKey, claims.UserID)
 			ctx = context.WithValue(ctx, userEmailKey, claims.Email)
 			ctx = context.WithValue(ctx, displayNameKey, claims.DisplayName)
+			ctx = context.WithValue(ctx, roleKey, claims.Role)
 
 			// Continue with the request
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -94,6 +96,14 @@ func GetUserEmail(ctx context.Context) string {
 func GetDisplayName(ctx context.Context) string {
 	if name, ok := ctx.Value(displayNameKey).(string); ok {
 		return name
+	}
+	return ""
+}
+
+// GetUserRole retrieves the user role from the request context
+func GetUserRole(ctx context.Context) string {
+	if role, ok := ctx.Value(roleKey).(string); ok {
+		return role
 	}
 	return ""
 }

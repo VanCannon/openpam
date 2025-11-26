@@ -5,10 +5,10 @@ import { api } from '@/lib/api'
 import { useRouter, useParams } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import type { Terminal as XTerm } from 'xterm'
-import type { FitAddon } from 'xterm-addon-fit'
+import type { Terminal as XTerm } from '@xterm/xterm'
+import type { FitAddon } from '@xterm/addon-fit'
 import type { AuditLog } from '@/types'
-import 'xterm/css/xterm.css'
+import '@xterm/xterm/css/xterm.css'
 
 export default function SessionPlayerPage() {
     const { user, loading } = useAuth()
@@ -48,8 +48,8 @@ export default function SessionPlayerPage() {
 
                 // Load xterm
                 const [{ Terminal }, { FitAddon }] = await Promise.all([
-                    import('xterm'),
-                    import('xterm-addon-fit')
+                    import('@xterm/xterm'),
+                    import('@xterm/addon-fit')
                 ])
 
                 if (!terminalRef.current) return

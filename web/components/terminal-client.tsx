@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { Terminal as XTerm } from 'xterm'
-import type { FitAddon } from 'xterm-addon-fit'
-import 'xterm/css/xterm.css'
+import type { Terminal as XTerm } from '@xterm/xterm'
+import type { FitAddon } from '@xterm/addon-fit'
+import '@xterm/xterm/css/xterm.css'
 
 interface TerminalProps {
   wsUrl: string
@@ -15,7 +15,6 @@ export default function TerminalClient({ wsUrl, onClose }: TerminalProps) {
   const xtermRef = useRef<XTerm | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
-  const initializedRef = useRef(false)
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting')
   const [error, setError] = useState<string>('')
 
@@ -32,9 +31,9 @@ export default function TerminalClient({ wsUrl, onClose }: TerminalProps) {
           { FitAddon },
           { WebLinksAddon }
         ] = await Promise.all([
-          import('xterm'),
-          import('xterm-addon-fit'),
-          import('xterm-addon-web-links')
+          import('@xterm/xterm'),
+          import('@xterm/addon-fit'),
+          import('@xterm/addon-web-links')
         ])
 
         if (isDisposed.current) return

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16
@@ -34,12 +32,11 @@ services:
       timeout: 5s
       retries: 5
 
-  # Uncomment to run guacd for RDP support
-  # guacd:
-  #   image: guacamole/guacd:1.5.4
-  #   container_name: openpam-guacd
-  #   ports:
-  #     - "4822:4822"
+  guacd:
+    image: guacamole/guacd:1.5.4
+    container_name: openpam-guacd
+    ports:
+      - "4822:4822"
 
 volumes:
   postgres_data:

@@ -169,6 +169,7 @@ func (h *AuthHandler) HandleCallback() http.HandlerFunc {
 			user.ID.String(),
 			user.Email,
 			user.DisplayName,
+			user.Role,
 		)
 		if err != nil {
 			h.logger.Error("Failed to generate token", map[string]interface{}{
@@ -229,6 +230,7 @@ func (h *AuthHandler) HandleCallback() http.HandlerFunc {
 				"id":           user.ID.String(),
 				"email":        user.Email,
 				"display_name": user.DisplayName,
+				"role":         user.Role,
 			},
 		}
 
@@ -334,6 +336,7 @@ func (h *AuthHandler) HandleMe() http.HandlerFunc {
 			"email":        user.Email,
 			"display_name": user.DisplayName,
 			"enabled":      user.Enabled,
+			"role":         user.Role,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -372,6 +375,7 @@ func (h *AuthHandler) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 		user.ID.String(),
 		user.Email,
 		user.DisplayName,
+		user.Role,
 	)
 	if err != nil {
 		h.logger.Error("Failed to generate token", map[string]interface{}{

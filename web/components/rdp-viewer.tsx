@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+// @ts-ignore - guacamole-common-js doesn't have TypeScript types
+import Guacamole from 'guacamole-common-js'
 
 interface RdpViewerProps {
   wsUrl: string
@@ -9,86 +11,124 @@ interface RdpViewerProps {
 
 export default function RdpViewer({ wsUrl, onClose }: RdpViewerProps) {
   const displayRef = useRef<HTMLDivElement>(null)
-  const wsRef = useRef<WebSocket | null>(null)
+  const clientRef = useRef<any>(null)
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting')
   const [error, setError] = useState<string>('')
 
   useEffect(() => {
     if (!displayRef.current) return
 
-    // Connect to WebSocket for RDP
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
+    try {
+      // Create WebSocket tunnel
+      const tunnel = new Guacamole.WebSocketTunnel(wsUrl)
 
-    ws.onopen = () => {
-      setConnectionStatus('connected')
-    }
+      // Create Guacamole client
+      const client = new Guacamole.Client(tunnel)
+      clientRef.current = client
 
-    ws.onmessage = (event) => {
-      if (typeof event.data === 'string') {
-        try {
-          const msg = JSON.parse(event.data)
-          if (msg.type === 'error') {
-            setError(msg.message)
-            setConnectionStatus('error')
-          }
-        } catch {
-          // Handle Guacamole protocol messages
-          handleGuacamoleMessage(event.data)
+      // Get display element
+      const display = client.getDisplay()
+
+      // Add display to DOM
+      displayRef.current.innerHTML = ''
+      displayRef.current.appendChild(display.getElement())
+
+      // Handle state changes
+      client.onstatechange = (state: number) => {
+        console.log('Guacamole state changed:', state)
+        switch (state) {
+          case 0: // IDLE
+            setConnectionStatus('connecting')
+            break
+          case 1: // CONNECTING
+            setConnectionStatus('connecting')
+            break
+          case 2: // WAITING
+            setConnectionStatus('connecting')
+            break
+          case 3: // CONNECTED
+            setConnectionStatus('connected')
+            break
+          case 4: // DISCONNECTING
+            setConnectionStatus('disconnected')
+            break
+          case 5: // DISCONNECTED
+            setConnectionStatus('disconnected')
+            if (onClose) onClose()
+            break
         }
       }
-    }
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error)
+      // Handle errors
+      client.onerror = (status: any) => {
+        console.error('Guacamole error:', status)
+        setError(`Connection error: ${status.message || 'Unknown error'}`)
+        setConnectionStatus('error')
+      }
+
+      // Handle clipboard (optional)
+      client.onclipboard = (_stream: any, mimetype: string) => {
+        console.log('Clipboard data received:', mimetype)
+      }
+
+      // Mouse handling
+      const mouse = new Guacamole.Mouse(display.getElement())
+
+      mouse.onmousedown =
+      mouse.onmouseup =
+      mouse.onmousemove = (mouseState: any) => {
+        client.sendMouseState(mouseState)
+      }
+
+      // Keyboard handling
+      const keyboard = new Guacamole.Keyboard(document)
+
+      keyboard.onkeydown = (keysym: number) => {
+        client.sendKeyEvent(1, keysym)
+      }
+
+      keyboard.onkeyup = (keysym: number) => {
+        client.sendKeyEvent(0, keysym)
+      }
+
+      // Connect
+      client.connect()
+
+      // Handle window resize
+      const handleResize = () => {
+        if (displayRef.current) {
+          const width = displayRef.current.clientWidth
+          const height = displayRef.current.clientHeight
+          client.sendSize(width, height)
+        }
+      }
+
+      window.addEventListener('resize', handleResize)
+      // Send initial size after a short delay to ensure connection is established
+      setTimeout(handleResize, 100)
+
+      // Cleanup
+      return () => {
+        window.removeEventListener('resize', handleResize)
+        if (keyboard) {
+          keyboard.onkeydown = null
+          keyboard.onkeyup = null
+        }
+        if (mouse) {
+          mouse.onmousedown = null
+          mouse.onmouseup = null
+          mouse.onmousemove = null
+        }
+        if (client) {
+          client.disconnect()
+        }
+      }
+    } catch (err) {
+      console.error('Failed to initialize Guacamole client:', err)
+      setError('Failed to initialize RDP client')
       setConnectionStatus('error')
-      setError('Connection error')
-    }
-
-    ws.onclose = () => {
-      setConnectionStatus('disconnected')
-      if (onClose) {
-        onClose()
-      }
-    }
-
-    // Cleanup
-    return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close()
-      }
     }
   }, [wsUrl, onClose])
-
-  const handleGuacamoleMessage = (data: string) => {
-    // This is a simplified handler
-    // In production, you would use the full Guacamole JavaScript client
-    // For now, we'll display a message that RDP is connected
-    console.log('Guacamole data:', data)
-  }
-
-  const sendMouseEvent = (event: React.MouseEvent) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      const rect = displayRef.current?.getBoundingClientRect()
-      if (!rect) return
-
-      const x = event.clientX - rect.left
-      const y = event.clientY - rect.top
-
-      // Send Guacamole mouse event
-      const msg = `5.mouse,${Math.floor(x)},${Math.floor(y)},${event.buttons};`
-      wsRef.current.send(msg)
-    }
-  }
-
-  const sendKeyEvent = (event: React.KeyboardEvent) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      // Send Guacamole key event
-      const pressed = event.type === 'keydown' ? 1 : 0
-      const msg = `3.key,${event.keyCode},${pressed};`
-      wsRef.current.send(msg)
-    }
-  }
 
   return (
     <div className="flex flex-col h-full bg-gray-900">
@@ -118,22 +158,8 @@ export default function RdpViewer({ wsUrl, onClose }: RdpViewerProps) {
       </div>
       <div
         ref={displayRef}
-        className="flex-1 relative bg-black cursor-crosshair"
-        onMouseMove={sendMouseEvent}
-        onMouseDown={sendMouseEvent}
-        onMouseUp={sendMouseEvent}
-        onKeyDown={sendKeyEvent}
-        onKeyUp={sendKeyEvent}
-        tabIndex={0}
+        className="flex-1 relative bg-black"
       >
-        {connectionStatus === 'connected' && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-500">
-            <div className="text-center">
-              <p className="text-xl mb-2">RDP Session Active</p>
-              <p className="text-sm">Click to interact with remote desktop</p>
-            </div>
-          </div>
-        )}
         {connectionStatus === 'connecting' && (
           <div className="absolute inset-0 flex items-center justify-center text-gray-500">
             <p>Connecting to remote desktop...</p>

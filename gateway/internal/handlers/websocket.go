@@ -20,6 +20,7 @@ import (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
+	Subprotocols:    []string{"guacamole"}, // Support Guacamole WebSocket protocol
 	CheckOrigin: func(r *http.Request) bool {
 		// TODO: Implement proper origin checking in production
 		return true

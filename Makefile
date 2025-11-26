@@ -32,7 +32,7 @@ test:
 	cd gateway && go test -v ./...
 
 dev-up:
-	docker-compose up -d
+	docker compose up -d
 	@echo "Waiting for services to be ready..."
 	@sleep 5
 	@echo "Dev environment is up!"
@@ -40,7 +40,7 @@ dev-up:
 	@echo "Vault: http://localhost:8200"
 
 dev-down:
-	docker-compose down
+	docker compose down
 
 clean:
 	rm -rf bin/

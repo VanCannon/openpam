@@ -49,6 +49,7 @@ type User struct {
 	Email       string       `json:"email" db:"email"`
 	DisplayName string       `json:"display_name,omitempty" db:"display_name"`
 	Enabled     bool         `json:"enabled" db:"enabled"`
+	Role        string       `json:"role" db:"role"`
 	CreatedAt   time.Time    `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time    `json:"updated_at" db:"updated_at"`
 	LastLoginAt sql.NullTime `json:"last_login_at,omitempty" db:"last_login_at"`
@@ -90,4 +91,18 @@ const (
 const (
 	ProtocolSSH = "ssh"
 	ProtocolRDP = "rdp"
+)
+
+// Role constants
+const (
+	RoleAdmin   = "admin"
+	RoleUser    = "user"
+	RoleAuditor = "auditor"
+)
+
+// ApprovalStatus constants
+const (
+	ApprovalStatusPending  = "pending"
+	ApprovalStatusApproved = "approved"
+	ApprovalStatusRejected = "rejected"
 )

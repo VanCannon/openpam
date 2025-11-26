@@ -24,13 +24,16 @@ func NewUserRepository(db *database.DB) *UserRepository {
 // Create creates a new user
 func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 	query := `
-		INSERT INTO users (id, entra_id, email, display_name, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO users (id, entra_id, email, display_name, enabled, role, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
 	user.ID = uuid.New()
 	user.CreatedAt = time.Now()
 	user.UpdatedAt = time.Now()
+	if user.Role == "" {
+		user.Role = models.RoleUser
+	}
 
 	_, err := r.db.ExecContext(ctx, query,
 		user.ID,
@@ -38,6 +41,7 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 		user.Email,
 		user.DisplayName,
 		user.Enabled,
+		user.Role,
 		user.CreatedAt,
 		user.UpdatedAt,
 	)
@@ -52,7 +56,7 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 // GetByID retrieves a user by ID
 func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.User, error) {
 	query := `
-		SELECT id, entra_id, email, display_name, enabled, created_at, updated_at, last_login_at
+		SELECT id, entra_id, email, display_name, enabled, role, created_at, updated_at, last_login_at
 		FROM users
 		WHERE id = $1
 	`
@@ -72,7 +76,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Use
 // GetByEntraID retrieves a user by EntraID
 func (r *UserRepository) GetByEntraID(ctx context.Context, entraID string) (*models.User, error) {
 	query := `
-		SELECT id, entra_id, email, display_name, enabled, created_at, updated_at, last_login_at
+		SELECT id, entra_id, email, display_name, enabled, role, created_at, updated_at, last_login_at
 		FROM users
 		WHERE entra_id = $1
 	`
@@ -92,7 +96,7 @@ func (r *UserRepository) GetByEntraID(ctx context.Context, entraID string) (*mod
 // GetByEmail retrieves a user by email
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := `
-		SELECT id, entra_id, email, display_name, enabled, created_at, updated_at, last_login_at
+		SELECT id, entra_id, email, display_name, enabled, role, created_at, updated_at, last_login_at
 		FROM users
 		WHERE email = $1
 	`
@@ -187,7 +191,7 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // List retrieves all users with pagination
 func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*models.User, error) {
 	query := `
-		SELECT id, entra_id, email, display_name, enabled, created_at, updated_at, last_login_at
+		SELECT id, entra_id, email, display_name, enabled, role, created_at, updated_at, last_login_at
 		FROM users
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
