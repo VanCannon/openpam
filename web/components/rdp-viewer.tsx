@@ -18,25 +18,30 @@ export default function RdpViewer({ wsUrl, onClose }: RdpViewerProps) {
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting')
   const [error, setError] = useState<string>('')
 
-  const connectionAttempted = useRef(false)
+
 
   useEffect(() => {
     if (!displayRef.current) return
 
     let client: any = null
     let tunnel: BinaryWebSocketTunnel | null = null
+    let mouse: any = null
+    let keyboard: any = null
+    let connectionTimeout: NodeJS.Timeout
 
     const initConnection = () => {
-      // Prevent double connection in Strict Mode
-      if (connectionAttempted.current) {
-        console.log('Connection already attempted, skipping')
-        return
-      }
-      connectionAttempted.current = true
-
       try {
         // Defensive clean of URL
-        const cleanUrl = wsUrl.replace('?undefined', '')
+        let cleanUrl = wsUrl.replace('?undefined', '')
+
+        // Append resolution params
+        if (displayRef.current) {
+          const width = displayRef.current.clientWidth
+          const height = displayRef.current.clientHeight
+          const separator = cleanUrl.includes('?') ? '&' : '?'
+          cleanUrl = `${cleanUrl}${separator}width=${width}&height=${height}`
+        }
+
         console.log('RdpViewer initializing with URL:', cleanUrl)
 
         // Create WebSocket tunnel using our custom BinaryWebSocketTunnel
@@ -64,7 +69,7 @@ export default function RdpViewer({ wsUrl, onClose }: RdpViewerProps) {
 
         // Handle state changes
         client.onstatechange = (state: number) => {
-          console.log('Guacamole state changed:', state)
+          // console.log('Guacamole state changed:', state)
           switch (state) {
             case 0: // IDLE
               setConnectionStatus('connecting')
@@ -100,11 +105,11 @@ export default function RdpViewer({ wsUrl, onClose }: RdpViewerProps) {
 
         // Handle clipboard (optional)
         client.onclipboard = (_stream: any, mimetype: string) => {
-          console.log('Clipboard data received:', mimetype)
+          // console.log('Clipboard data received:', mimetype)
         }
 
         // Mouse handling - send directly via tunnel like reference implementation
-        const mouse = new Guacamole.Mouse(display.getElement())
+        mouse = new Guacamole.Mouse(display.getElement())
 
         mouse.onmousedown =
           mouse.onmouseup =
@@ -124,7 +129,7 @@ export default function RdpViewer({ wsUrl, onClose }: RdpViewerProps) {
           }
 
         // Keyboard handling - send directly via tunnel like reference implementation
-        const keyboard = new Guacamole.Keyboard(document)
+        keyboard = new Guacamole.Keyboard(document)
 
         keyboard.onkeydown = (keysym: number) => {
           if (!tunnel) return
@@ -155,12 +160,8 @@ export default function RdpViewer({ wsUrl, onClose }: RdpViewerProps) {
         }
 
         window.addEventListener('resize', handleResize)
-        // Send initial size immediately (without debounce)
-        if (displayRef.current && tunnel) {
-          const width = displayRef.current.clientWidth
-          const height = displayRef.current.clientHeight
-          tunnel.sendInstruction("size", [width, height, 96])
-        }
+        // Initial size is now handled by the handshake URL params
+
 
       } catch (err) {
         console.error('Failed to initialize Guacamole client:', err)
@@ -169,15 +170,25 @@ export default function RdpViewer({ wsUrl, onClose }: RdpViewerProps) {
       }
     }
 
-    // Initialize immediately
-    initConnection()
+    // Debounce connection to handle React Strict Mode
+    connectionTimeout = setTimeout(() => {
+      isUnmounting.current = false
+      initConnection()
+    }, 100)
 
     // Cleanup
     return () => {
       isUnmounting.current = true
-      window.removeEventListener('resize', () => { }) // Note: anonymous function won't remove the specific listener, but we can't access handleResize here easily. 
-      // Actually, we should move handleResize out or keep it in scope. 
-      // For now, let's rely on component unmount.
+      clearTimeout(connectionTimeout)
+
+      window.removeEventListener('resize', () => { }) // Note: this still doesn't work for anonymous function, but we can't easily fix without refactoring handleResize
+
+      if (mouse) {
+        mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = null
+      }
+      if (keyboard) {
+        keyboard.onkeydown = keyboard.onkeyup = null
+      }
 
       if (client) {
         client.disconnect()

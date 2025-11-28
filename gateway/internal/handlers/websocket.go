@@ -4,15 +4,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
-	"github.com/bvanc/openpam/gateway/internal/logger"
-	"github.com/bvanc/openpam/gateway/internal/middleware"
-	"github.com/bvanc/openpam/gateway/internal/models"
-	"github.com/bvanc/openpam/gateway/internal/rdp"
-	"github.com/bvanc/openpam/gateway/internal/repository"
-	"github.com/bvanc/openpam/gateway/internal/ssh"
-	"github.com/bvanc/openpam/gateway/internal/vault"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/middleware"
+	"github.com/VanCannon/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/rdp"
+	"github.com/VanCannon/openpam/gateway/internal/repository"
+	"github.com/VanCannon/openpam/gateway/internal/ssh"
+	"github.com/VanCannon/openpam/gateway/internal/vault"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
@@ -161,6 +162,26 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 		// Use first credential (TODO: implement credential selection)
 		cred := credentials[0]
 
+		// If a specific credential ID was requested, use that one
+		credentialId := r.URL.Query().Get("credential_id")
+
+		// Defensive fix: client library seems to append ?undefined
+		if strings.Contains(credentialId, "?undefined") {
+			credentialId = strings.ReplaceAll(credentialId, "?undefined", "")
+		}
+
+		if credentialId != "" {
+			credUUID, err := uuid.Parse(credentialId)
+			if err == nil {
+				for _, c := range credentials {
+					if c.ID == credUUID {
+						cred = c
+						break
+					}
+				}
+			}
+		}
+
 		// Check if using raw password (for testing/dev)
 		var vaultCreds *vault.Credentials
 		if strings.HasPrefix(cred.VaultSecretPath, "raw:") {
@@ -193,6 +214,14 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 		}
 
 		// Upgrade to WebSocket
+		h.logger.Info("Incoming WebSocket connection", map[string]interface{}{
+			"url":           r.URL.String(),
+			"remote_addr":   r.RemoteAddr,
+			"x_forwarded":   r.Header.Get("X-Forwarded-For"),
+			"protocol":      protocol,
+			"target_id":     targetID.String(),
+			"credential_id": cred.ID.String(),
+		})
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			h.logger.Error("Failed to upgrade to WebSocket", map[string]interface{}{
@@ -231,7 +260,22 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 		case models.ProtocolSSH:
 			err = h.handleSSHConnection(ctx, conn, target, vaultCreds, auditLog)
 		case models.ProtocolRDP:
-			err = h.handleRDPConnection(ctx, conn, target, vaultCreds, auditLog)
+			// Parse resolution from query params
+			width := 1024
+			height := 768
+
+			if wStr := r.URL.Query().Get("width"); wStr != "" {
+				if w, err := strconv.Atoi(wStr); err == nil && w > 0 {
+					width = w
+				}
+			}
+			if hStr := r.URL.Query().Get("height"); hStr != "" {
+				if h, err := strconv.Atoi(hStr); err == nil && h > 0 {
+					height = h
+				}
+			}
+
+			err = h.handleRDPConnection(ctx, conn, target, vaultCreds, auditLog, width, height)
 		}
 
 		// Update audit log with final status
@@ -289,14 +333,18 @@ func (h *ConnectionHandler) handleRDPConnection(
 	target *models.Target,
 	creds *vault.Credentials,
 	auditLog *models.AuditLog,
+	width int,
+	height int,
 ) error {
 	h.logger.Info("Starting RDP proxy", map[string]interface{}{
 		"target":   target.Hostname,
 		"port":     target.Port,
 		"username": creds.Username,
+		"width":    width,
+		"height":   height,
 	})
 
-	err := h.rdpProxy.Handle(ctx, conn, target, creds, auditLog)
+	err := h.rdpProxy.Handle(ctx, conn, target, creds, auditLog, width, height)
 	if err != nil {
 		return fmt.Errorf("RDP proxy error: %w", err)
 	}

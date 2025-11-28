@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/VanCannon/openpam/gateway/internal/logger"
 	"github.com/VanCannon/openpam/gateway/internal/models"
 	"github.com/VanCannon/openpam/gateway/internal/vault"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -37,6 +39,8 @@ func (p *Proxy) Handle(
 	target *models.Target,
 	creds *vault.Credentials,
 	auditLog *models.AuditLog,
+	width int,
+	height int,
 ) error {
 	// Connect to guacd
 	guacdConn, err := net.Dial("tcp", p.guacdAddress)
@@ -81,8 +85,7 @@ func (p *Proxy) Handle(
 	})
 
 	// Construct "size" instruction (client screen size)
-	// Hardcoded for now, should come from client handshake
-	if err := p.sendInstruction(guacdConn, "size", "1024", "768", "96"); err != nil {
+	if err := p.sendInstruction(guacdConn, "size", fmt.Sprintf("%d", width), fmt.Sprintf("%d", height), "96"); err != nil {
 		return fmt.Errorf("failed to send size to guacd: %w", err)
 	}
 
@@ -112,8 +115,8 @@ func (p *Proxy) Handle(
 		"enable-theming":         "true",
 		"enable-menu-animations": "true",
 		"color-depth":            "32",
-		"width":                  "1024",
-		"height":                 "768",
+		"width":                  fmt.Sprintf("%d", width),
+		"height":                 fmt.Sprintf("%d", height),
 		"dpi":                    "96",
 		"resize-method":          "display-update",
 	}
@@ -155,8 +158,8 @@ func (p *Proxy) Handle(
 	}
 
 	// Send "size" to client to ensure display is sized correctly
-	// layer 0, width 1024, height 768
-	if err := p.sendInstruction(&wsWriter{wsConn}, "size", "0", "1024", "768"); err != nil {
+	// layer 0, width, height
+	if err := p.sendInstruction(&wsWriter{wsConn}, "size", "0", fmt.Sprintf("%d", width), fmt.Sprintf("%d", height)); err != nil {
 		return fmt.Errorf("failed to send size to client: %w", err)
 	}
 
@@ -301,4 +304,69 @@ func (w *wsWriter) Write(p []byte) (int, error) {
 		return 0, err
 	}
 	return len(p), nil
+}
+
+// sendInstruction sends a Guacamole instruction to the writer
+func (p *Proxy) sendInstruction(w io.Writer, opcode string, args ...string) error {
+	var sb strings.Builder
+
+	// Opcode
+	sb.WriteString(fmt.Sprintf("%d.%s", len(opcode), opcode))
+
+	// Args
+	for _, arg := range args {
+		sb.WriteString(fmt.Sprintf(",%d.%s", len(arg), arg))
+	}
+
+	sb.WriteString(";")
+
+	_, err := w.Write([]byte(sb.String()))
+	return err
+}
+
+// readInstruction reads a Guacamole instruction from the reader
+func (p *Proxy) readInstruction(reader *bufio.Reader) (string, []string, error) {
+	var elements []string
+	var currentElement strings.Builder
+	var length int
+
+	for {
+		// Read length
+		lenStr, err := reader.ReadString('.')
+		if err != nil {
+			return "", nil, err
+		}
+		lenStr = strings.TrimSuffix(lenStr, ".")
+
+		if _, err := fmt.Sscanf(lenStr, "%d", &length); err != nil {
+			return "", nil, fmt.Errorf("invalid length: %w", err)
+		}
+
+		// Read content
+		content := make([]byte, length)
+		if _, err := io.ReadFull(reader, content); err != nil {
+			return "", nil, err
+		}
+		currentElement.Write(content)
+		elements = append(elements, currentElement.String())
+		currentElement.Reset()
+
+		// Check delimiter
+		delim, err := reader.ReadByte()
+		if err != nil {
+			return "", nil, err
+		}
+
+		if delim == ';' {
+			break
+		} else if delim != ',' {
+			return "", nil, fmt.Errorf("unexpected delimiter: %c", delim)
+		}
+	}
+
+	if len(elements) == 0 {
+		return "", nil, fmt.Errorf("empty instruction")
+	}
+
+	return elements[0], elements[1:], nil
 }

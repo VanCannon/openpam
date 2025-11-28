@@ -14,7 +14,7 @@ export class BinaryWebSocketTunnel extends Guacamole.Tunnel {
         this.parser = new Guacamole.Parser();
 
         this.parser.oninstruction = (opcode, args) => {
-            console.log("Tunnel instruction:", opcode, args);
+            // console.log("Tunnel instruction:", opcode, args);
             if (this.oninstruction) {
                 this.oninstruction(opcode, args);
             }
@@ -27,7 +27,7 @@ export class BinaryWebSocketTunnel extends Guacamole.Tunnel {
         this.socket.binaryType = "arraybuffer";
 
         this.socket.onopen = () => {
-            console.log("BinaryWebSocketTunnel: WebSocket Open");
+            // console.log("BinaryWebSocketTunnel: WebSocket Open");
             // Reset decoder on new connection
             this.decoder = new TextDecoder("utf-8");
             this.setState(Guacamole.Tunnel.State.OPEN);
