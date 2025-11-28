@@ -1,15 +1,18 @@
 package rdp
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net"
 	"sync"
+	"time"
 
-	"github.com/bvanc/openpam/gateway/internal/logger"
-	"github.com/bvanc/openpam/gateway/internal/models"
-	"github.com/bvanc/openpam/gateway/internal/vault"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/vault"
 	"github.com/gorilla/websocket"
 )
 
@@ -42,141 +45,230 @@ func (p *Proxy) Handle(
 	}
 	defer guacdConn.Close()
 
+	// Disable Nagle's algorithm to prevent buffering delays
+	// if tcpConn, ok := guacdConn.(*net.TCPConn); ok {
+	// 	tcpConn.SetNoDelay(true)
+	// }
+
+	// Use buffered reader for guacd connection
+	guacdReader := bufio.NewReader(guacdConn)
+
 	p.logger.Info("Connected to guacd", map[string]interface{}{
 		"address": p.guacdAddress,
 		"target":  target.Hostname,
 	})
 
-	// Store connection parameters for injection
-	// We'll intercept the client's connect instruction and inject our credentials
-	connectionParams := map[string]string{
-		"hostname": target.Hostname,
-		"port":     fmt.Sprintf("%d", target.Port),
-		"username": creds.Username,
-		"password": creds.Password,
-	}
+	// 1. Handshake with guacd
+	// We need to select the protocol (rdp)
+	// The handshake involves sending a "select" instruction
 
-	// Proxy data between WebSocket and guacd
-	var wg sync.WaitGroup
-	var bytesSent, bytesReceived int64
-
-	errChan := make(chan error, 2)
-
-	// Send initial "select" instruction to guacd to start the handshake
-	// This initiates the protocol and tells guacd we want RDP
-	selectInstruction := "6.select,3.rdp;"
-	p.logger.Info("Initiating handshake with guacd", map[string]interface{}{"select": selectInstruction})
-	if _, err := guacdConn.Write([]byte(selectInstruction)); err != nil {
+	// Send "select" instruction
+	if err := p.sendInstruction(guacdConn, "select", "rdp"); err != nil {
 		return fmt.Errorf("failed to send select to guacd: %w", err)
 	}
 
-	// Read the args response from guacd and forward it to the client
-	// This tells the client what parameters are available
-	buffer := make([]byte, 8192)
-	n, err := guacdConn.Read(buffer)
+	// Read "args" instruction from guacd
+	opcode, args, err := p.readInstruction(guacdReader)
 	if err != nil {
 		return fmt.Errorf("failed to read args from guacd: %w", err)
 	}
-	argsResponse := buffer[:n]
+	if opcode != "args" {
+		return fmt.Errorf("expected args instruction, got: %s", opcode)
+	}
+
 	p.logger.Info("Received args from guacd", map[string]interface{}{
-		"args":   string(argsResponse),
-		"length": n,
+		"args": args,
 	})
 
-	// Forward the args instruction to the WebSocket client
-	if err := wsConn.WriteMessage(websocket.TextMessage, argsResponse); err != nil {
-		return fmt.Errorf("failed to send args to client: %w", err)
+	// Construct "size" instruction (client screen size)
+	// Hardcoded for now, should come from client handshake
+	if err := p.sendInstruction(guacdConn, "size", "1024", "768", "96"); err != nil {
+		return fmt.Errorf("failed to send size to guacd: %w", err)
 	}
-	p.logger.Info("Forwarded args to client")
 
-	// WebSocket -> guacd
-	wg.Add(1)
+	// Construct "audio" and "video" instructions (supported formats)
+	if err := p.sendInstruction(guacdConn, "audio", "audio/L16", "rate=44100", "channels=2"); err != nil {
+		return fmt.Errorf("failed to send audio to guacd: %w", err)
+	}
+	if err := p.sendInstruction(guacdConn, "video", "image/jpeg", "image/png", "image/webp"); err != nil {
+		return fmt.Errorf("failed to send video to guacd: %w", err)
+	}
+
+	// Construct "image" instruction (supported image formats)
+	if err := p.sendInstruction(guacdConn, "image", "image/png", "image/jpeg"); err != nil {
+		return fmt.Errorf("failed to send image to guacd: %w", err)
+	}
+
+	// Connection parameters
+	config := map[string]string{
+		"hostname":               target.Hostname,
+		"port":                   fmt.Sprintf("%d", target.Port),
+		"username":               creds.Username,
+		"password":               creds.Password,
+		"ignore-cert":            "true",
+		"security":               "any",
+		"disable-bitmap-caching": "true",
+		"enable-wallpaper":       "true",
+		"enable-theming":         "true",
+		"enable-menu-animations": "true",
+		"color-depth":            "32",
+		"width":                  "1024",
+		"height":                 "768",
+		"dpi":                    "96",
+		"resize-method":          "display-update",
+	}
+
+	// Respond to "args" with "connect"
+	// Match the reference implementation exactly - treat all args the same
+	connectArgs := make([]string, len(args))
+	for i, argName := range args {
+		if val, ok := config[argName]; ok {
+			connectArgs[i] = val
+		} else {
+			connectArgs[i] = ""
+		}
+	}
+
+	p.logger.Info("Sending connect instruction to guacd", map[string]interface{}{
+		"instruction": "connect",
+		"num_args":    len(connectArgs),
+	})
+
+	if err := p.sendInstruction(guacdConn, "connect", connectArgs...); err != nil {
+		return fmt.Errorf("failed to send connect to guacd: %w", err)
+	}
+
+	// Wait for "ready" instruction
+	opcode, readyArgs, err := p.readInstruction(guacdReader)
+	if err != nil {
+		return fmt.Errorf("failed to read ready from guacd: %w", err)
+	}
+	if opcode != "ready" {
+		return fmt.Errorf("expected ready instruction, got: %s", opcode)
+	}
+
+	p.logger.Info("Guacamole connection established (ready received)")
+
+	// Send "ready" to client
+	if err := p.sendInstruction(&wsWriter{wsConn}, "ready", readyArgs...); err != nil {
+		return fmt.Errorf("failed to send ready to client: %w", err)
+	}
+
+	// Send "size" to client to ensure display is sized correctly
+	// layer 0, width 1024, height 768
+	if err := p.sendInstruction(&wsWriter{wsConn}, "size", "0", "1024", "768"); err != nil {
+		return fmt.Errorf("failed to send size to client: %w", err)
+	}
+
+	// Proxy loop
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	errChan := make(chan error, 2)
+	var bytesSent, bytesReceived int64
+
+	// guacd -> websocket
 	go func() {
 		defer wg.Done()
-		messageCount := 0
+		buf := make([]byte, 4096)
 		for {
-			_, data, err := wsConn.ReadMessage()
+			n, err := guacdReader.Read(buf)
 			if err != nil {
-				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-					p.logger.Info("WebSocket closed normally")
+				if err != io.EOF {
+					p.logger.Error("guacd read error", map[string]interface{}{"error": err.Error()})
+					errChan <- err
 				} else {
-					p.logger.Error("WebSocket read error", map[string]interface{}{"error": err.Error()})
-					errChan <- fmt.Errorf("WebSocket read error: %w", err)
+					p.logger.Info("guacd connection closed (EOF)")
 				}
 				return
 			}
+			// p.logger.Info("guacd -> ws", map[string]interface{}{"bytes": n})
+			bytesReceived += int64(n)
 
-			bytesSent += int64(len(data))
-			messageCount++
-
-			dataStr := string(data)
-
-			// Log first few messages from client
-			if messageCount <= 10 {
-				p.logger.Info("Client -> guacd", map[string]interface{}{
-					"message_num": messageCount,
-					"data":        dataStr,
-					"length":      len(data),
-				})
-			}
-
-			// Intercept connect instruction to inject credentials
-			if len(dataStr) > 7 && dataStr[:7] == "7.connect" {
-				// Parse and modify the connect instruction
-				// The client sends: 7.connect,hostname,port,...
-				// We need to inject our actual credentials
-				modifiedConnect := p.injectCredentials(dataStr, connectionParams)
-				p.logger.Info("Modified connect instruction", map[string]interface{}{
-					"original": dataStr,
-					"modified": modifiedConnect,
-				})
-				data = []byte(modifiedConnect)
-			}
-
-			if _, err := guacdConn.Write(data); err != nil {
-				p.logger.Error("guacd write error", map[string]interface{}{"error": err.Error()})
-				errChan <- fmt.Errorf("guacd write error: %w", err)
+			// Write raw bytes to websocket
+			// Use BinaryMessage to avoid UTF-8 validation issues if we split a character
+			err = wsConn.WriteMessage(websocket.BinaryMessage, buf[:n])
+			if err != nil {
+				p.logger.Error("ws write error", map[string]interface{}{"error": err.Error()})
+				errChan <- err
 				return
 			}
 		}
 	}()
 
-	// guacd -> WebSocket
-	wg.Add(1)
+	// websocket -> guacd
 	go func() {
 		defer wg.Done()
-		buffer := make([]byte, 8192)
-		messageCount := 0
-		for {
-			n, err := guacdConn.Read(buffer)
-			if err != nil {
-				if err == io.EOF {
-					p.logger.Info("guacd connection closed (EOF)")
-				} else {
-					p.logger.Error("guacd read error", map[string]interface{}{"error": err.Error()})
-					errChan <- fmt.Errorf("guacd read error: %w", err)
+
+		// Create a ticker to send keep-alives to guacd
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		// Goroutine to handle keep-alives
+		go func() {
+			for range ticker.C {
+				// Send nop to guacd to keep connection alive
+				// This is important because if the client is idle, guacd might time out
+				err := p.sendInstruction(guacdConn, "nop")
+				if err != nil {
+					p.logger.Error("Error sending keep-alive to guacd", map[string]interface{}{"error": err.Error()})
+					return
 				}
+			}
+		}()
+
+		for {
+			_, message, err := wsConn.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					p.logger.Error("ws read error", map[string]interface{}{"error": err.Error()})
+					errChan <- err
+				} else {
+					p.logger.Info("WebSocket closed normally")
+				}
+				// Close guacd connection immediately to unblock the other goroutine
+				guacdConn.Close()
 				return
 			}
 
-			bytesReceived += int64(n)
-			messageCount++
+			// Parse and filter instructions
+			// The client might send internal instructions (empty opcode) which guacd doesn't understand.
+			// We need to filter them out.
+			reader := bufio.NewReader(bytes.NewReader(message))
+			for {
+				opcode, args, err := p.readInstruction(reader)
+				if err != nil {
+					if err != io.EOF {
+						// It's common to hit EOF if the message ended cleanly between instructions
+						// But readInstruction returns error if it hits EOF in the middle of an instruction
+						// If it hits EOF at the very beginning, it returns EOF.
+						if err.Error() != "EOF" {
+							p.logger.Error("Error parsing instruction from ws", map[string]interface{}{"error": err.Error()})
+						}
+					}
+					break
+				}
 
-			data := buffer[:n]
+				// Ignore internal "empty" opcode (used for keep-alive/internal)
+				if opcode == "" {
+					// Respond to keep-alive
+					err = p.sendInstruction(&wsWriter{wsConn}, "nop")
+					if err != nil {
+						p.logger.Error("ws write error (keep-alive)", map[string]interface{}{"error": err.Error()})
+						guacdConn.Close()
+						return
+					}
+					continue
+				}
 
-			// Log first few messages from guacd
-			if messageCount <= 5 {
-				p.logger.Info("guacd -> Client", map[string]interface{}{
-					"message_num": messageCount,
-					"data":        string(data),
-					"length":      n,
-				})
-			}
-
-			if err := wsConn.WriteMessage(websocket.TextMessage, data); err != nil {
-				p.logger.Error("WebSocket write error", map[string]interface{}{"error": err.Error()})
-				errChan <- fmt.Errorf("WebSocket write error: %w", err)
-				return
+				// Forward instruction to guacd
+				err = p.sendInstruction(guacdConn, opcode, args...)
+				if err != nil {
+					p.logger.Error("guacd write error", map[string]interface{}{"error": err.Error()})
+					errChan <- err
+					guacdConn.Close()
+					return
+				}
 			}
 		}
 	}()
@@ -187,6 +279,10 @@ func (p *Proxy) Handle(
 		p.logger.Info("RDP session cancelled by context")
 		return ctx.Err()
 	case err := <-errChan:
+		// Wait for goroutines to finish
+		// Note: we might need to close connections to force them to finish if they are blocked
+		wsConn.Close()
+		guacdConn.Close()
 		wg.Wait()
 		auditLog.BytesSent = bytesSent
 		auditLog.BytesReceived = bytesReceived
@@ -194,72 +290,15 @@ func (p *Proxy) Handle(
 	}
 }
 
-// injectCredentials modifies a Guacamole connect instruction to inject our credentials
-func (p *Proxy) injectCredentials(connectMsg string, params map[string]string) string {
-	// Parse the Guacamole connect instruction
-	// Format: 7.connect,14.192.168.10.184,4.3389,0.,0.,...;
-	// We need to replace hostname (position 0), port (position 1), username (position 3), password (position 4)
+// wsWriter wraps websocket.Conn to satisfy io.Writer
+type wsWriter struct {
+	*websocket.Conn
+}
 
-	// For simplicity, we'll rebuild the connect instruction with our parameters
-	// The order from the args instruction is: hostname, port, domain, username, password, width, height, ...
-
-	// Extract everything after "7.connect," and before the final ";"
-	if len(connectMsg) < 10 || connectMsg[:10] != "7.connect," {
-		return connectMsg
+func (w *wsWriter) Write(p []byte) (int, error) {
+	err := w.Conn.WriteMessage(websocket.TextMessage, p)
+	if err != nil {
+		return 0, err
 	}
-
-	// Build new connect instruction with injected credentials
-	result := "7.connect"
-	result += fmt.Sprintf(",%d.%s", len(params["hostname"]), params["hostname"])
-	result += fmt.Sprintf(",%d.%s", len(params["port"]), params["port"])
-	result += ",0." // domain (empty)
-	result += fmt.Sprintf(",%d.%s", len(params["username"]), params["username"])
-	result += fmt.Sprintf(",%d.%s", len(params["password"]), params["password"])
-
-	// Extract the rest of the parameters from the original message (width, height, etc.)
-	// Skip the first 5 parameters (hostname, port, domain, username, password)
-	rest := connectMsg[10:] // Skip "7.connect,"
-	paramCount := 0
-	i := 0
-	for i < len(rest) {
-		// Find the length prefix
-		dotPos := -1
-		for j := i; j < len(rest) && j < i+10; j++ {
-			if rest[j] == '.' {
-				dotPos = j
-				break
-			}
-		}
-		if dotPos == -1 {
-			break
-		}
-
-		lengthStr := rest[i:dotPos]
-		length := 0
-		fmt.Sscanf(lengthStr, "%d", &length)
-
-		// Skip this parameter's value
-		valueStart := dotPos + 1
-		valueEnd := valueStart + length
-
-		paramCount++
-		if paramCount > 5 {
-			// Include this parameter in the result
-			if valueEnd <= len(rest) {
-				result += "," + rest[i:valueEnd]
-			}
-		}
-
-		// Move to next parameter
-		i = valueEnd
-		if i < len(rest) && rest[i] == ',' {
-			i++
-		}
-		if i < len(rest) && rest[i] == ';' {
-			break
-		}
-	}
-
-	result += ";"
-	return result
+	return len(p), nil
 }

@@ -50,6 +50,21 @@ Visit http://localhost:3000 and click "Sign in with Microsoft" - you'll be auto-
 
 See [docs/development.md](docs/development.md) for detailed development mode guide.
 
+### RDP Connections
+
+To enable RDP connections, you'll also need guacd:
+
+```bash
+# Start guacd daemon for RDP
+docker-compose up -d guacd
+```
+
+RDP connections are fully browser-based using Apache Guacamole with:
+- Mouse and keyboard input
+- Dynamic resolution adjustment (automatically resizes to match browser window)
+- Clipboard support (optional)
+- Full session recording capability
+
 ### Production Setup
 
 ### Prerequisites
@@ -229,10 +244,13 @@ See the schema in [docs/architecture.md](docs/architecture.md) or [gateway/inter
 - [ ] Session handling
 - [ ] User management
 
-### Phase 3: Protocol Handlers (TODO)
-- [ ] WebSocket tunnel endpoint
-- [ ] SSH proxy implementation
-- [ ] RDP proxy with Guacamole
+### Phase 3: Protocol Handlers
+- [x] WebSocket tunnel endpoint
+- [x] SSH proxy implementation
+- [x] RDP proxy with Guacamole
+  - [x] Mouse and keyboard input
+  - [x] Dynamic resolution adjustment
+  - [x] Clipboard support
 - [ ] Session recording
 
 ### Phase 4: Repository Layer (TODO)

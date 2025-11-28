@@ -33,10 +33,13 @@ services:
       retries: 5
 
   guacd:
-    image: guacamole/guacd:1.5.4
+    image: guacamole/guacd
     container_name: openpam-guacd
     ports:
       - "4822:4822"
+    environment:
+      - GUACD_LOG_LEVEL=debug
+    command: ["-L", "debug", "-b", "0.0.0.0"]
 
 volumes:
   postgres_data:
