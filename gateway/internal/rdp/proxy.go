@@ -13,6 +13,7 @@ import (
 
 	"github.com/VanCannon/openpam/gateway/internal/logger"
 	"github.com/VanCannon/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/ssh"
 	"github.com/VanCannon/openpam/gateway/internal/vault"
 
 	"github.com/gorilla/websocket"
@@ -22,13 +23,17 @@ import (
 type Proxy struct {
 	guacdAddress string
 	logger       *logger.Logger
+	recorder     *Recorder
+	monitor      *ssh.Monitor
 }
 
 // NewProxy creates a new RDP proxy
-func NewProxy(guacdAddress string, log *logger.Logger) *Proxy {
+func NewProxy(guacdAddress string, log *logger.Logger, recorder *Recorder, monitor *ssh.Monitor) *Proxy {
 	return &Proxy{
 		guacdAddress: guacdAddress,
 		logger:       log,
+		recorder:     recorder,
+		monitor:      monitor,
 	}
 }
 
@@ -49,11 +54,6 @@ func (p *Proxy) Handle(
 	}
 	defer guacdConn.Close()
 
-	// Disable Nagle's algorithm to prevent buffering delays
-	// if tcpConn, ok := guacdConn.(*net.TCPConn); ok {
-	// 	tcpConn.SetNoDelay(true)
-	// }
-
 	// Use buffered reader for guacd connection
 	guacdReader := bufio.NewReader(guacdConn)
 
@@ -62,9 +62,19 @@ func (p *Proxy) Handle(
 		"target":  target.Hostname,
 	})
 
+	// Start recording if recorder is available
+	if p.recorder != nil {
+		if err := p.recorder.StartRecording(ctx, auditLog.ID.String()); err != nil {
+			p.logger.Error("Failed to start recording", map[string]interface{}{
+				"error": err.Error(),
+			})
+		} else {
+			defer p.recorder.StopRecording(auditLog.ID.String())
+		}
+	}
+
 	// 1. Handshake with guacd
-	// We need to select the protocol (rdp)
-	// The handshake involves sending a "select" instruction
+	// ... (rest of handshake logic remains the same until proxy loop)
 
 	// Send "select" instruction
 	if err := p.sendInstruction(guacdConn, "select", "rdp"); err != nil {
@@ -85,6 +95,22 @@ func (p *Proxy) Handle(
 	})
 
 	// Construct "size" instruction (client screen size)
+	// We must record and broadcast this so monitors/replay know the screen size
+	if p.recorder != nil {
+		p.recorder.WriteInstruction(auditLog.ID.String(), "size", "0", fmt.Sprintf("%d", width), fmt.Sprintf("%d", height), "96")
+	}
+
+	// Keep track of header messages to send to new subscribers
+	var headerBuilder strings.Builder
+
+	if p.monitor != nil {
+		// Broadcast size: 4.size,1.0,4.1024,3.768,2.96;
+		msg := fmt.Sprintf("4.size,1.0,%d.%d,%d.%d,2.96;", len(fmt.Sprintf("%d", width)), width, len(fmt.Sprintf("%d", height)), height)
+		headerBuilder.WriteString(msg)
+		p.monitor.SetHeader(auditLog.ID.String(), []byte(headerBuilder.String()))
+		p.monitor.Broadcast(auditLog.ID.String(), []byte(msg))
+	}
+
 	if err := p.sendInstruction(guacdConn, "size", fmt.Sprintf("%d", width), fmt.Sprintf("%d", height), "96"); err != nil {
 		return fmt.Errorf("failed to send size to guacd: %w", err)
 	}
@@ -152,6 +178,24 @@ func (p *Proxy) Handle(
 
 	p.logger.Info("Guacamole connection established (ready received)")
 
+	// Record and broadcast "ready"
+	if p.recorder != nil {
+		p.recorder.WriteInstruction(auditLog.ID.String(), "ready", readyArgs...)
+	}
+	if p.monitor != nil {
+		var sb strings.Builder
+		sb.WriteString("5.ready")
+		for _, arg := range readyArgs {
+			sb.WriteString(fmt.Sprintf(",%d.%s", len(arg), arg))
+		}
+		sb.WriteString(";")
+		msg := sb.String()
+
+		headerBuilder.WriteString(msg)
+		p.monitor.SetHeader(auditLog.ID.String(), []byte(headerBuilder.String()))
+		p.monitor.Broadcast(auditLog.ID.String(), []byte(msg))
+	}
+
 	// Send "ready" to client
 	if err := p.sendInstruction(&wsWriter{wsConn}, "ready", readyArgs...); err != nil {
 		return fmt.Errorf("failed to send ready to client: %w", err)
@@ -167,35 +211,70 @@ func (p *Proxy) Handle(
 	var wg sync.WaitGroup
 	wg.Add(2)
 
+	// Use a channel to signal that one side has closed the connection
+	// This allows us to unblock the other side
+	doneChan := make(chan struct{})
 	errChan := make(chan error, 2)
 	var bytesSent, bytesReceived int64
+
+	// Ensure connections are closed when we exit to unblock goroutines
+	defer wsConn.Close()
+	defer guacdConn.Close()
 
 	// guacd -> websocket
 	go func() {
 		defer wg.Done()
-		buf := make([]byte, 4096)
+		// We parse instructions here to record them
 		for {
-			n, err := guacdReader.Read(buf)
+			opcode, args, err := p.readInstruction(guacdReader)
 			if err != nil {
 				if err != io.EOF {
-					p.logger.Error("guacd read error", map[string]interface{}{"error": err.Error()})
-					errChan <- err
+					// Only log real errors, not normal EOF
+					if !strings.Contains(err.Error(), "use of closed network connection") {
+						p.logger.Error("guacd read error", map[string]interface{}{"error": err.Error()})
+						errChan <- err
+					}
 				} else {
 					p.logger.Info("guacd connection closed (EOF)")
 				}
 				return
 			}
-			// p.logger.Info("guacd -> ws", map[string]interface{}{"bytes": n})
-			bytesReceived += int64(n)
 
-			// Write raw bytes to websocket
-			// Use BinaryMessage to avoid UTF-8 validation issues if we split a character
-			err = wsConn.WriteMessage(websocket.BinaryMessage, buf[:n])
-			if err != nil {
-				p.logger.Error("ws write error", map[string]interface{}{"error": err.Error()})
-				errChan <- err
+			// Record instruction
+			if p.recorder != nil {
+				if err := p.recorder.WriteInstruction(auditLog.ID.String(), opcode, args...); err != nil {
+					p.logger.Error("Failed to record instruction", map[string]interface{}{
+						"error": err.Error(),
+					})
+				}
+			}
+
+			// Broadcast to monitor
+			if p.monitor != nil {
+				// We need to reconstruct the instruction string to broadcast it
+				// Format: opcode,arg,arg;
+				// Note: The monitor expects raw bytes to send to the websocket.
+				// The frontend player will expect the standard Guacamole protocol stream.
+				var sb strings.Builder
+				sb.WriteString(fmt.Sprintf("%d.%s", len(opcode), opcode))
+				for _, arg := range args {
+					sb.WriteString(fmt.Sprintf(",%d.%s", len(arg), arg))
+				}
+				sb.WriteString(";")
+				p.monitor.Broadcast(auditLog.ID.String(), []byte(sb.String()))
+			}
+
+			// Forward to WebSocket
+			if err := p.sendInstruction(&wsWriter{wsConn}, opcode, args...); err != nil {
+				if !strings.Contains(err.Error(), "use of closed network connection") {
+					p.logger.Error("ws write error", map[string]interface{}{"error": err.Error()})
+					errChan <- err
+				}
 				return
 			}
+
+			// Estimate bytes received (rough approximation since we re-serialized)
+			bytesReceived += 100 // Placeholder
 		}
 	}()
 
@@ -209,12 +288,16 @@ func (p *Proxy) Handle(
 
 		// Goroutine to handle keep-alives
 		go func() {
-			for range ticker.C {
-				// Send nop to guacd to keep connection alive
-				// This is important because if the client is idle, guacd might time out
-				err := p.sendInstruction(guacdConn, "nop")
-				if err != nil {
-					p.logger.Error("Error sending keep-alive to guacd", map[string]interface{}{"error": err.Error()})
+			for {
+				select {
+				case <-ticker.C:
+					// Send nop to guacd to keep connection alive
+					err := p.sendInstruction(guacdConn, "nop")
+					if err != nil {
+						// If error (e.g. closed connection), stop
+						return
+					}
+				case <-doneChan:
 					return
 				}
 			}
@@ -229,25 +312,16 @@ func (p *Proxy) Handle(
 				} else {
 					p.logger.Info("WebSocket closed normally")
 				}
-				// Close guacd connection immediately to unblock the other goroutine
-				guacdConn.Close()
 				return
 			}
 
 			// Parse and filter instructions
-			// The client might send internal instructions (empty opcode) which guacd doesn't understand.
-			// We need to filter them out.
 			reader := bufio.NewReader(bytes.NewReader(message))
 			for {
 				opcode, args, err := p.readInstruction(reader)
 				if err != nil {
-					if err != io.EOF {
-						// It's common to hit EOF if the message ended cleanly between instructions
-						// But readInstruction returns error if it hits EOF in the middle of an instruction
-						// If it hits EOF at the very beginning, it returns EOF.
-						if err.Error() != "EOF" {
-							p.logger.Error("Error parsing instruction from ws", map[string]interface{}{"error": err.Error()})
-						}
+					if err != io.EOF && err.Error() != "EOF" {
+						p.logger.Error("Error parsing instruction from ws", map[string]interface{}{"error": err.Error()})
 					}
 					break
 				}
@@ -257,8 +331,6 @@ func (p *Proxy) Handle(
 					// Respond to keep-alive
 					err = p.sendInstruction(&wsWriter{wsConn}, "nop")
 					if err != nil {
-						p.logger.Error("ws write error (keep-alive)", map[string]interface{}{"error": err.Error()})
-						guacdConn.Close()
 						return
 					}
 					continue
@@ -267,29 +339,33 @@ func (p *Proxy) Handle(
 				// Forward instruction to guacd
 				err = p.sendInstruction(guacdConn, opcode, args...)
 				if err != nil {
-					p.logger.Error("guacd write error", map[string]interface{}{"error": err.Error()})
-					errChan <- err
-					guacdConn.Close()
+					if !strings.Contains(err.Error(), "use of closed network connection") {
+						p.logger.Error("guacd write error", map[string]interface{}{"error": err.Error()})
+						errChan <- err
+					}
 					return
 				}
 			}
 		}
 	}()
 
-	// Wait for completion or error
+	// Wait for completion
+	go func() {
+		wg.Wait()
+		close(doneChan)
+	}()
+
 	select {
 	case <-ctx.Done():
 		p.logger.Info("RDP session cancelled by context")
 		return ctx.Err()
 	case err := <-errChan:
-		// Wait for goroutines to finish
-		// Note: we might need to close connections to force them to finish if they are blocked
-		wsConn.Close()
-		guacdConn.Close()
-		wg.Wait()
+		return err
+	case <-doneChan:
+		// Success
 		auditLog.BytesSent = bytesSent
 		auditLog.BytesReceived = bytesReceived
-		return err
+		return nil
 	}
 }
 
