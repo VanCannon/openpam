@@ -3,11 +3,11 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/bvanc/openpam/gateway/internal/logger"
-	"github.com/bvanc/openpam/gateway/internal/middleware"
-	"github.com/bvanc/openpam/gateway/internal/models"
-	"github.com/bvanc/openpam/gateway/internal/repository"
-	"github.com/bvanc/openpam/gateway/internal/ssh"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/middleware"
+	"github.com/VanCannon/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/repository"
+	"github.com/VanCannon/openpam/gateway/internal/ssh"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
@@ -110,14 +110,12 @@ func (h *MonitorHandler) HandleMonitor() http.HandlerFunc {
 		dataChan := h.monitor.Subscribe(sessionID.String())
 		defer h.monitor.Unsubscribe(sessionID.String(), dataChan)
 
-		// Write audit message to recording and broadcast
+		// Write audit message to recording
 		if h.recorder != nil {
 			auditMsg := []byte("\r\n\r\n[--- Live monitoring by " + monitorUser + " started ---]\r\n\r\n")
 			if writer := h.recorder.GetWriter(sessionID.String()); writer != nil {
 				writer.Write(auditMsg)
 			}
-			// Broadcast to all monitors (including the one that just subscribed)
-			h.monitor.Broadcast(sessionID.String(), auditMsg)
 		}
 
 		// Forward data from monitor to WebSocket
@@ -137,8 +135,6 @@ func (h *MonitorHandler) HandleMonitor() http.HandlerFunc {
 			if writer := h.recorder.GetWriter(sessionID.String()); writer != nil {
 				writer.Write(auditMsg)
 			}
-			// Also broadcast to other monitors
-			h.monitor.Broadcast(sessionID.String(), auditMsg)
 		}
 
 		h.logger.Info("Monitor disconnected from session", map[string]interface{}{

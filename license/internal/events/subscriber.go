@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/nats-io/nats.go"
-	"github.com/openpam/license/internal/license"
-	"github.com/openpam/license/pkg/logger"
+	"github.com/VanCannon/openpam/license/internal/license"
+	"github.com/VanCannon/openpam/license/pkg/logger"
 )
 
 type Subscriber struct {

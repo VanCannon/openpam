@@ -59,11 +59,17 @@ class ApiClient {
 
       return response.json()
     } catch (error) {
-      console.error('API request failed:', {
-        path,
-        baseUrl: this.baseUrl,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      // Don't log 401 errors as they are often expected (e.g. checkAuth)
+      const isUnauthorized = error instanceof Error &&
+        (error.message.includes('401') || error.message.includes('Unauthorized'))
+
+      if (!isUnauthorized) {
+        console.error('API request failed:', {
+          path,
+          baseUrl: this.baseUrl,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
       throw error
     }
   }
@@ -230,7 +236,17 @@ class ApiClient {
   // WebSocket URL for connections
   getWebSocketUrl(protocol: string, targetId: string, credentialId: string): string {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080'
-    return `${wsUrl}/api/ws/connect/${protocol}/${targetId}?credential_id=${credentialId}`
+    // Defensive fix for potential undefined in credentialId
+    const cleanCredId = credentialId.replace('?undefined', '')
+    let url = `${wsUrl}/api/ws/connect/${protocol}/${targetId}?credential_id=${cleanCredId}`
+
+    // Append auth token if available (required for WebSockets as they don't send headers)
+    if (this.token) {
+      url += `&token=${this.token}`
+    }
+
+    console.log('Generated WebSocket URL:', url)
+    return url
   }
 }
 

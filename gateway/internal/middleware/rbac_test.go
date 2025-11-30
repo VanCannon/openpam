@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/bvanc/openpam/gateway/internal/logger"
-	"github.com/bvanc/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/models"
 )
 
 func TestRequireRole(t *testing.T) {

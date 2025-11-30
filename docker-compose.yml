@@ -41,5 +41,44 @@ services:
       - GUACD_LOG_LEVEL=debug
     command: ["-L", "debug", "-b", "0.0.0.0"]
 
+  orchestrator:
+    build: ./orchestrator
+    container_name: openpam-orchestrator
+    ports:
+      - "8090:8090"
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=openpam
+      - POSTGRES_PASSWORD=openpam
+      - POSTGRES_DB=openpam
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  identity:
+    build: ./identity
+    container_name: openpam-identity
+    ports:
+      - "8082:8082"
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=openpam
+      - POSTGRES_PASSWORD=openpam
+      - POSTGRES_DB=openpam
+    depends_on:
+      orchestrator:
+        condition: service_started
+
+  scheduling:
+    build: ./scheduling
+    container_name: openpam-scheduling
+    ports:
+      - "8081:8081"
+    depends_on:
+      orchestrator:
+        condition: service_started
+
 volumes:
   postgres_data:

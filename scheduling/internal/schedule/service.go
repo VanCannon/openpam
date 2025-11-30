@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/openpam/scheduling/pkg/logger"
+	"github.com/VanCannon/openpam/scheduling/pkg/logger"
 )
 
 type Service struct {

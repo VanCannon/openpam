@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bvanc/openpam/gateway/internal/database"
-	"github.com/bvanc/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/database"
+	"github.com/VanCannon/openpam/gateway/internal/models"
 	"github.com/google/uuid"
 )
 

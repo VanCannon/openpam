@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/openpam/license/internal/license"
-	"github.com/openpam/license/pkg/logger"
+	"github.com/VanCannon/openpam/license/internal/license"
+	"github.com/VanCannon/openpam/license/pkg/logger"
 )
 
 type Handler struct {

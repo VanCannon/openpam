@@ -11,12 +11,12 @@ import (
 	"time"
 
 	consulapi "github.com/hashicorp/consul/api"
-	"github.com/openpam/scheduling/internal/config"
-	"github.com/openpam/scheduling/internal/database"
-	"github.com/openpam/scheduling/internal/events"
-	"github.com/openpam/scheduling/internal/handlers"
-	"github.com/openpam/scheduling/internal/schedule"
-	"github.com/openpam/scheduling/pkg/logger"
+	"github.com/VanCannon/openpam/scheduling/internal/config"
+	"github.com/VanCannon/openpam/scheduling/internal/database"
+	"github.com/VanCannon/openpam/scheduling/internal/events"
+	"github.com/VanCannon/openpam/scheduling/internal/handlers"
+	"github.com/VanCannon/openpam/scheduling/internal/schedule"
+	"github.com/VanCannon/openpam/scheduling/pkg/logger"
 )
 
 func main() {

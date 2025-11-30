@@ -9,6 +9,7 @@ import { api } from '@/lib/api'
 import type { Terminal as XTerm } from '@xterm/xterm'
 import type { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import RdpPlayer from '@/components/rdp-player'
 
 export default function AuditorPage() {
     const { user, loading } = useAuth()
@@ -18,6 +19,7 @@ export default function AuditorPage() {
     const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all')
     const [selectedSession, setSelectedSession] = useState<AuditLog | null>(null)
     const [loadingRecording, setLoadingRecording] = useState(false)
+    const [recordingContent, setRecordingContent] = useState<string>('')
     const terminalRef = useRef<HTMLDivElement>(null)
     const xtermRef = useRef<XTerm | null>(null)
     const wsRef = useRef<WebSocket | null>(null)
@@ -82,6 +84,12 @@ export default function AuditorPage() {
         // If no session selected, we're done
         if (!selectedSession) {
             setLoadingRecording(false)
+            return
+        }
+
+        // If RDP, we skip terminal init but still need to load recording
+        if (selectedSession.protocol === 'rdp') {
+            loadRecording(null as any, selectedSession.id)
             return
         }
 
@@ -156,18 +164,33 @@ export default function AuditorPage() {
 
         if (isActive) {
             // For active sessions, load history then connect to live stream
-            term.write('\r\n[Loading session history...]\r\n\r\n')
+            if (session.protocol !== 'rdp') {
+                term.write('\r\n[Loading session history...]\r\n\r\n')
+            }
             try {
-                await loadRecording(term, session.id)
+                // For RDP, we need to load recording content even for active sessions
+                // to get the initial state (size, ready, etc.)
+                if (session.protocol === 'rdp') {
+                    await loadRecording(null as any, session.id)
+                } else {
+                    await loadRecording(term, session.id)
+                }
             } catch (err) {
                 console.log('No recording history yet:', err)
             }
-            term.write('\r\n\r\n[Connecting to live session...]\r\n\r\n')
-            await connectLiveMonitor(term, session.id)
+
+            if (session.protocol !== 'rdp') {
+                term.write('\r\n\r\n[Connecting to live session...]\r\n\r\n')
+                await connectLiveMonitor(term, session.id)
+            }
         } else {
             // Load completed recording
             console.log('Loading completed recording for session:', session.id)
-            await loadRecording(term, session.id)
+            if (session.protocol === 'rdp') {
+                await loadRecording(null as any, session.id)
+            } else {
+                await loadRecording(term, session.id)
+            }
         }
 
         return () => {
@@ -232,24 +255,33 @@ export default function AuditorPage() {
             }
 
             // Write content in chunks
-            const chunkSize = 1024
-            let offset = 0
-            const writeChunk = () => {
-                if (offset < content.length) {
-                    const chunk = content.substring(offset, offset + chunkSize)
-                    term.write(chunk)
-                    offset += chunkSize
-                    setTimeout(writeChunk, 0)
-                } else {
-                    console.log('Finished writing recording to terminal')
+            // Write content in chunks
+            if (selectedSession?.protocol === 'rdp') {
+                setRecordingContent(content)
+            } else {
+                if (!term) return
+
+                const chunkSize = 1024
+                let offset = 0
+                const writeChunk = () => {
+                    if (offset < content.length) {
+                        const chunk = content.substring(offset, offset + chunkSize)
+                        term.write(chunk)
+                        offset += chunkSize
+                        setTimeout(writeChunk, 0)
+                    } else {
+                        console.log('Finished writing recording to terminal')
+                    }
                 }
+                writeChunk()
             }
-            writeChunk()
         } catch (err) {
             console.error('Failed to load recording:', err)
-            term.write('[Failed to load recording]\r\n')
-            if (err instanceof Error) {
-                term.write(`Error: ${err.message}\r\n`)
+            if (term) {
+                term.write('[Failed to load recording]\r\n')
+                if (err instanceof Error) {
+                    term.write(`Error: ${err.message}\r\n`)
+                }
             }
         }
     }
@@ -341,9 +373,8 @@ export default function AuditorPage() {
                                             <div
                                                 key={session.id}
                                                 onClick={() => handleSelectSession(session)}
-                                                className={`px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${
-                                                    isSelected ? 'bg-indigo-50 border-l-4 border-indigo-600' : ''
-                                                }`}
+                                                className={`px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${isSelected ? 'bg-indigo-50 border-l-4 border-indigo-600' : ''
+                                                    }`}
                                             >
                                                 <div className="flex items-start justify-between">
                                                     <div className="flex-1 min-w-0">
@@ -421,11 +452,21 @@ export default function AuditorPage() {
 
                             {selectedSession ? (
                                 <div className="bg-[#1e1e1e] h-[calc(100vh-300px)] relative">
-                                    <div ref={terminalRef} className="h-full p-2" />
-                                    {loadingRecording && (
-                                        <div className="absolute inset-0 flex items-center justify-center bg-[#1e1e1e] bg-opacity-90">
-                                            <div className="text-gray-400">Loading session...</div>
-                                        </div>
+                                    {selectedSession.protocol === 'rdp' ? (
+                                        <RdpPlayer
+                                            sessionId={selectedSession.id}
+                                            mode={selectedSession.session_status === 'active' ? 'live' : 'replay'}
+                                            recordingData={recordingContent}
+                                        />
+                                    ) : (
+                                        <>
+                                            <div ref={terminalRef} className="h-full p-2" />
+                                            {loadingRecording && (
+                                                <div className="absolute inset-0 flex items-center justify-center bg-[#1e1e1e] bg-opacity-90">
+                                                    <div className="text-gray-400">Loading session...</div>
+                                                </div>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             ) : (

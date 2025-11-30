@@ -3,8 +3,8 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/bvanc/openpam/gateway/internal/logger"
-	"github.com/bvanc/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/models"
 )
 
 // RequireRole returns a middleware that requires a specific role

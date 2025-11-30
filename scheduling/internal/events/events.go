@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"github.com/openpam/scheduling/internal/schedule"
-	"github.com/openpam/scheduling/pkg/logger"
+	"github.com/VanCannon/openpam/scheduling/internal/schedule"
+	"github.com/VanCannon/openpam/scheduling/pkg/logger"
 )
 
 type Publisher struct {

@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/bvanc/openpam/gateway/internal/database"
+	"github.com/VanCannon/openpam/gateway/internal/database"
 )
 
 func main() {

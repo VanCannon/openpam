@@ -6,8 +6,8 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
-	"github.com/openpam/scheduling/internal/config"
-	"github.com/openpam/scheduling/pkg/logger"
+	"github.com/VanCannon/openpam/scheduling/internal/config"
+	"github.com/VanCannon/openpam/scheduling/pkg/logger"
 )
 
 type Database struct {

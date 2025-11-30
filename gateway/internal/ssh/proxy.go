@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bvanc/openpam/gateway/internal/logger"
-	"github.com/bvanc/openpam/gateway/internal/models"
-	"github.com/bvanc/openpam/gateway/internal/vault"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/vault"
 	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/ssh"
 )

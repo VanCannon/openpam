@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/VanCannon/openpam/gateway/internal/logger"
 	"github.com/VanCannon/openpam/gateway/internal/middleware"
@@ -291,7 +292,11 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 			auditLog.SessionStatus = models.SessionStatusCompleted
 		}
 
-		if err := h.auditRepo.UpdateStatus(ctx, auditLog); err != nil {
+		// Use a new context for the update since the request context might be cancelled
+		updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := h.auditRepo.UpdateStatus(updateCtx, auditLog); err != nil {
 			h.logger.Error("Failed to update audit log", map[string]interface{}{
 				"error": err.Error(),
 			})

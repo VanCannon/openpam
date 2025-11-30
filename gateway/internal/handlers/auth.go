@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bvanc/openpam/gateway/internal/auth"
-	"github.com/bvanc/openpam/gateway/internal/logger"
-	"github.com/bvanc/openpam/gateway/internal/models"
-	"github.com/bvanc/openpam/gateway/internal/repository"
+	"github.com/VanCannon/openpam/gateway/internal/auth"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/repository"
 	"github.com/google/uuid"
 )
 

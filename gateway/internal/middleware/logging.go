@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bvanc/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
 )
 
 // responseWriter wraps http.ResponseWriter to capture status code

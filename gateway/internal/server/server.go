@@ -6,17 +6,17 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bvanc/openpam/gateway/internal/auth"
-	"github.com/bvanc/openpam/gateway/internal/config"
-	"github.com/bvanc/openpam/gateway/internal/database"
-	"github.com/bvanc/openpam/gateway/internal/handlers"
-	"github.com/bvanc/openpam/gateway/internal/logger"
-	"github.com/bvanc/openpam/gateway/internal/middleware"
-	"github.com/bvanc/openpam/gateway/internal/models"
-	"github.com/bvanc/openpam/gateway/internal/rdp"
-	"github.com/bvanc/openpam/gateway/internal/repository"
-	"github.com/bvanc/openpam/gateway/internal/ssh"
-	"github.com/bvanc/openpam/gateway/internal/vault"
+	"github.com/VanCannon/openpam/gateway/internal/auth"
+	"github.com/VanCannon/openpam/gateway/internal/config"
+	"github.com/VanCannon/openpam/gateway/internal/database"
+	"github.com/VanCannon/openpam/gateway/internal/handlers"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/middleware"
+	"github.com/VanCannon/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/rdp"
+	"github.com/VanCannon/openpam/gateway/internal/repository"
+	"github.com/VanCannon/openpam/gateway/internal/ssh"
+	"github.com/VanCannon/openpam/gateway/internal/vault"
 )
 
 // Server represents the OpenPAM gateway server
@@ -72,11 +72,19 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		sshRecorder = nil // Continue without recording
 	}
 
+	rdpRecorder, err := rdp.NewRecorder("./recordings")
+	if err != nil {
+		log.Error("Failed to create RDP recorder", map[string]interface{}{
+			"error": err.Error(),
+		})
+		rdpRecorder = nil // Continue without recording
+	}
+
 	// Create session monitor for live monitoring
 	sshMonitor := ssh.NewMonitor()
 
 	sshProxy := ssh.NewProxy(log, sshRecorder, sshMonitor)
-	rdpProxy := rdp.NewProxy("localhost:4822", log) // guacd address
+	rdpProxy := rdp.NewProxy("localhost:4822", log, rdpRecorder, sshMonitor) // guacd address
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(

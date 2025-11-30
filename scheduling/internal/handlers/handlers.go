@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/openpam/scheduling/internal/schedule"
-	"github.com/openpam/scheduling/pkg/logger"
+	"github.com/VanCannon/openpam/scheduling/internal/schedule"
+	"github.com/VanCannon/openpam/scheduling/pkg/logger"
 )
 
 type Handler struct {

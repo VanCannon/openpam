@@ -35,7 +35,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(currentUser)
     } catch (error) {
       // 401 is expected when not logged in - don't show error
-      const isUnauthorized = error instanceof Error && error.message.includes('401')
+      const isUnauthorized = error instanceof Error &&
+        (error.message.includes('401') || error.message.includes('Unauthorized'))
       if (!isUnauthorized) {
         console.error('Auth check failed:', error)
       }

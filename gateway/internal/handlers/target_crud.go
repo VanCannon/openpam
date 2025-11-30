@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/bvanc/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/models"
 	"github.com/google/uuid"
 )
 

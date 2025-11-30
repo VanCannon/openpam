@@ -8,14 +8,24 @@ import (
 type Monitor struct {
 	// subscribers maps session ID to a list of subscriber channels
 	subscribers map[string][]chan []byte
-	mu          sync.RWMutex
+	// headers maps session ID to a header message (sent to new subscribers)
+	headers map[string][]byte
+	mu      sync.RWMutex
 }
 
 // NewMonitor creates a new session monitor
 func NewMonitor() *Monitor {
 	return &Monitor{
 		subscribers: make(map[string][]chan []byte),
+		headers:     make(map[string][]byte),
 	}
+}
+
+// SetHeader sets the header message for a session, which is sent to all new subscribers
+func (m *Monitor) SetHeader(sessionID string, data []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.headers[sessionID] = data
 }
 
 // Subscribe adds a new subscriber for a session and returns a channel to receive data
@@ -31,6 +41,11 @@ func (m *Monitor) Subscribe(sessionID string) chan []byte {
 	}
 
 	m.subscribers[sessionID] = append(m.subscribers[sessionID], ch)
+
+	// Send header if exists
+	if header, ok := m.headers[sessionID]; ok {
+		ch <- header
+	}
 
 	return ch
 }
@@ -57,6 +72,7 @@ func (m *Monitor) Unsubscribe(sessionID string, ch chan []byte) {
 			// Clean up empty session entries
 			if len(m.subscribers[sessionID]) == 0 {
 				delete(m.subscribers, sessionID)
+				delete(m.headers, sessionID)
 			}
 
 			return

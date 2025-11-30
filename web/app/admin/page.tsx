@@ -61,6 +61,18 @@ export default function AdminPage() {
       href: '/admin/audit',
       icon: '📋',
     },
+    {
+      title: 'AD Sync',
+      description: 'Synchronize with Active Directory',
+      href: '/admin/identity',
+      icon: '🔄',
+    },
+    {
+      title: 'Managed Accounts',
+      description: 'View accounts imported from AD',
+      href: '/admin/managed-accounts',
+      icon: '🏢',
+    },
   ]
 
   return (

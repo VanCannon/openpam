@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/openpam/license/pkg/logger"
+	"github.com/VanCannon/openpam/license/pkg/logger"
 )
 
 type Service struct {

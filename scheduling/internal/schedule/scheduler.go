@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/openpam/scheduling/pkg/logger"
+	"github.com/VanCannon/openpam/scheduling/pkg/logger"
 )
 
 type Scheduler struct {

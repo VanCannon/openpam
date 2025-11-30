@@ -10,12 +10,12 @@ import (
 	"time"
 
 	consulapi "github.com/hashicorp/consul/api"
-	"github.com/openpam/license/internal/config"
-	"github.com/openpam/license/internal/database"
-	"github.com/openpam/license/internal/events"
-	"github.com/openpam/license/internal/handlers"
-	"github.com/openpam/license/internal/license"
-	"github.com/openpam/license/pkg/logger"
+	"github.com/VanCannon/openpam/license/internal/config"
+	"github.com/VanCannon/openpam/license/internal/database"
+	"github.com/VanCannon/openpam/license/internal/events"
+	"github.com/VanCannon/openpam/license/internal/handlers"
+	"github.com/VanCannon/openpam/license/internal/license"
+	"github.com/VanCannon/openpam/license/pkg/logger"
 )
 
 func main() {

@@ -7,9 +7,9 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/bvanc/openpam/gateway/internal/logger"
-	"github.com/bvanc/openpam/gateway/internal/repository"
-	"github.com/bvanc/openpam/gateway/internal/ssh"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/repository"
+	"github.com/VanCannon/openpam/gateway/internal/ssh"
 	"github.com/google/uuid"
 )
 

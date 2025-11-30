@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/bvanc/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
 	"github.com/gorilla/websocket"
 	"github.com/google/uuid"
 )

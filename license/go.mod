@@ -1,4 +1,4 @@
-module github.com/openpam/license
+module github.com/VanCannon/openpam/license
 
 go 1.21
 

@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bvanc/openpam/gateway/internal/logger"
-	"github.com/bvanc/openpam/gateway/internal/middleware"
-	"github.com/bvanc/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/middleware"
+	"github.com/VanCannon/openpam/gateway/internal/models"
 )
 
 // ScheduleHandler handles schedule-related requests

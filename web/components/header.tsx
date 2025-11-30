@@ -65,6 +65,18 @@ export default function Header() {
                                 >
                                     Audit Logs
                                 </Link>
+                                <Link
+                                    href="/admin/users"
+                                    className={`text-sm ${isActive('/admin/users') ? 'text-gray-900 font-medium' : 'text-blue-600 hover:text-blue-800'}`}
+                                >
+                                    Users
+                                </Link>
+                                <Link
+                                    href="/admin/computers"
+                                    className={`text-sm ${isActive('/admin/computers') ? 'text-gray-900 font-medium' : 'text-blue-600 hover:text-blue-800'}`}
+                                >
+                                    Computers
+                                </Link>
                             </>
                         )}
 

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"github.com/openpam/license/pkg/logger"
+	"github.com/VanCannon/openpam/license/pkg/logger"
 )
 
 type Publisher struct {

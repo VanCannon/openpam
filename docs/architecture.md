@@ -2,7 +2,7 @@ Architecture Specification: OpenPAM
 
 1. System Overview
 
-OpenPAM is a web-based Privileged Access Management tool designed to provide secure, clientless access to infrastructure. It acts as a central gateway, enforcing authentication (via EntraID/AD) before proxying connections to SSH and RDP targets.
+OpenPAM is a web-based Privileged Access Management tool designed to provide secure, clientless access to infrastructure. It acts as a central gateway, enforcing authentication (via EntraID/Okta/AD) before proxying connections to SSH and RDP targets.
 
 The system is evolving into a comprehensive PAM platform with an orchestrator-based microservices architecture, supporting advanced features including scheduling, automation, identity management, and multi-channel communications.
 
@@ -26,7 +26,7 @@ Tech: Golang.
 
 Role:
 
-Auth Enforcement: Validates EntraID tokens.
+Auth Enforcement: Validates EntraID, Okta, or AD tokens.
 
 Protocol Translation: Converts WebSockets -> Raw TCP (SSH) or Guacamole Protocol (RDP).
 
@@ -76,43 +76,43 @@ Components:
 - Service Registry: Dynamic service discovery and health checking (Consul)
 - State Management: Distributed state storage (Redis/etcd)
 
-### Microservice Agents
+### Microservices
 
-The orchestrator coordinates six specialized agents:
+The orchestrator coordinates six specialized services:
 
-1. **Scheduling Agent** (Port 8081)
+1. **Scheduling Service** (Port 8081)
    - Time-based access control
    - Session scheduling windows
    - Recurring access patterns
    - Calendar integration
 
-2. **Identity Agent** (Port 8082)
+2. **Identity Service** (Port 8082)
    - Active Directory / LDAP synchronization
    - User and group import
    - Organizational unit mapping
    - Incremental and full sync
 
-3. **Activity Agent** (Port 8083)
+3. **Activity Service** (Port 8083)
    - User lifecycle management (create/delete/enable/disable)
    - Group membership management
    - PowerShell script execution (Windows)
    - Bash script execution (Linux)
    - Audit trail logging
 
-4. **Automation Agent** (Port 8084)
+4. **Automation Service** (Port 8084)
    - Ansible playbook execution
    - Infrastructure provisioning
    - Configuration management
    - Task scheduling
 
-5. **Communications Agent** (Port 8085)
+5. **Communications Service** (Port 8085)
    - Email notifications (SMTP)
    - Slack integration
    - Microsoft Teams integration
    - SIEM log forwarding (CEF, LEEF, Syslog, JSON)
    - Multi-format log aggregation
 
-6. **License Agent** (Port 8086)
+6. **License Service** (Port 8086)
    - License validation and enforcement
    - Feature flag management
    - Usage tracking and limits
@@ -132,7 +132,7 @@ The orchestrator coordinates six specialized agents:
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         Gateway Layer (Port 8080)                       │
 │                          Golang Gateway (Hub)                           │
-│   - Authentication (EntraID/AD)                                        │
+│   - Authentication (EntraID/Okta/AD)                                   │
 │   - SSH/RDP Protocol Translation                                       │
 │   - WebSocket Management                                               │
 │   - Credential Retrieval from Vault                                    │
@@ -154,43 +154,42 @@ The orchestrator coordinates six specialized agents:
 │   HashiCorp Vault       │                   │ Coordinates
 │  - Credentials          │                   ▼
 │  - Private Keys         │    ┌──────────────────────────────────────────┐
-│  - Service Tokens       │    │         Microservice Agents              │
+│  - Service Tokens       │    │         Microservices              │
 └─────────────────────────┘    └──────────────────────────────────────────┘
                                 │
-              ┌─────────────────┴─────────────────┬───────────────┬──────────┐
-              │                 │                 │               │          │
-              ▼                 ▼                 ▼               ▼          ▼
-    ┌─────────────────┐ ┌──────────────┐ ┌─────────────┐ ┌──────────┐ ┌────────┐
-    │  Scheduling     │ │   Identity   │ │  Activity   │ │  Comms   │ │License │
-    │    Agent        │ │    Agent     │ │   Agent     │ │  Agent   │ │ Agent  │
-    │  (Port 8081)    │ │ (Port 8082)  │ │(Port 8083)  │ │(Port 8085)│ │(8086) │
-    │                 │ │              │ │             │ │          │ │        │
-    │ - Time windows  │ │ - AD/LDAP    │ │ - User Mgmt │ │ - Email  │ │-Limits │
-    │ - Schedules     │ │ - Sync users │ │ - Scripts   │ │ - Slack  │ │-Features│
-    │ - Recurring     │ │ - Sync groups│ │ - Workflows │ │ - Teams  │ │-Usage  │
-    └─────────────────┘ └──────┬───────┘ └──────┬──────┘ │ - SIEM   │ └────────┘
-                               │                │        └─────┬────┘
-                               ▼                ▼              │
-                        ┌─────────────┐  ┌──────────┐         │
-                        │Active       │  │PowerShell│         ▼
-                        │Directory/   │  │  Bash    │  ┌──────────────┐
-                        │LDAP Servers │  │ Scripts  │  │Splunk/Elastic│
-                        └─────────────┘  └──────────┘  │Azure Sentinel│
-                                                       │  Syslog      │
-         ┌────────────────────────────────────────────┤  SIEM        │
-         │     Automation Agent (Port 8084)           └──────────────┘
-         │
-         │  - Ansible Playbooks
-         │  - Infrastructure Automation
-         │  - Configuration Management
-         └────────┬──────────────────────────
-                  ▼
-         ┌──────────────────┐
-         │ Target Infrastructure
-         │ - SSH Servers
-         │ - RDP Servers
-         │ - Cloud Resources
-         └──────────────────┘
+              ┌─────────────────┴────────┬──────────────┬──────────────┐
+              │                          │              │              │
+              ▼                          ▼              ▼              ▼
+    ┌─────────────────┐          ┌──────────────┐ ┌─────────────┐ ┌──────────┐
+    │  Scheduling     │          │   Identity   │ │  Activity   │ │ License  │
+    │    Service      │          │    Service   │ │   Service   │ │  Service │
+    │  (Port 8081)    │          │ (Port 8082)  │ │(Port 8083)  │ │(Port 8086) │
+    │                 │          │              │ │             │ │          │
+    │ - Time windows  │          │ - AD/LDAP    │ │ - User Mgmt │ │-Limits   │
+    │ - Schedules     │          │ - Sync users │ │ - Scripts   │ │-Features │
+    │ - Recurring     │          │ - Sync groups│ │ - Workflows │ │-Usage    │
+    └─────────────────┘          └──────┬───────┘ └──────┬──────┘ └──────────┘
+                                        │                │
+              ┌─────────────────────────┼────────────────┼─────────────┐
+              │                         │                │             │
+              ▼                         ▼                ▼             ▼
+    ┌─────────────────┐          ┌─────────────┐  ┌──────────┐   ┌──────────┐
+    │  Automation     │          │Active       │  │PowerShell│   │  Comms   │
+    │    Service      │          │Directory/   │  │  Bash    │   │  Service │
+    │  (Port 8084)    │          │LDAP Servers │  │ Scripts  │   │(Port 8085)│
+    │                 │          └─────────────┘  └──────────┘   │          │
+    │ - Ansible       │                                          │ - Email  │
+    │ - Infra Auto    │                                          │ - Slack  │
+    │ - Config Mgmt   │                                          │ - SIEM   │
+    └────────┬────────┘                                          └─────┬────┘
+             │                                                         │
+             ▼                                                         ▼
+    ┌──────────────────┐                                     ┌──────────────┐
+    │ Target Infra     │                                     │Splunk/Elastic│
+    │ - SSH Servers    │                                     │Azure Sentinel│
+    │ - RDP Servers    │                                     │  Syslog      │
+    │ - Cloud Resources│                                     │  SIEM        │
+    └──────────────────┘                                     └──────────────┘
 ```
 
 4. Data Flow Diagrams
@@ -234,23 +233,23 @@ Frontend sends schedule request to Gateway API.
 Gateway publishes `schedule.requested` event to NATS Event Bus.
 
 Orchestrator Workflow Manager starts "scheduled_access" workflow:
-  - Step 1: License Agent validates user count and concurrent session limits
-  - Step 2: Scheduling Agent creates schedule record with time window
-  - Step 3: Identity Agent checks if user exists in AD (sync if needed)
-  - Step 4: Activity Agent grants target access permissions
-  - Step 5: Communications Agent sends email confirmation to user
-  - Step 6: Communications Agent logs event to SIEM
+  - Step 1: License Service validates user count and concurrent session limits
+  - Step 2: Scheduling Service creates schedule record with time window
+  - Step 3: Identity Service checks if user exists in AD (sync if needed)
+  - Step 4: Activity Service grants target access permissions
+  - Step 5: Communications Service sends email confirmation to user
+  - Step 6: Communications Service logs event to SIEM
 
 When Tuesday 9 AM arrives:
-  - Scheduling Agent publishes `schedule.activated` event
+  - Scheduling Service publishes `schedule.activated` event
   - Gateway allows user connection to Server C
-  - Communications Agent sends Slack notification: "Access to Server C is now available"
+  - Communications Service sends Slack notification: "Access to Server C is now available"
 
 When Tuesday 5 PM arrives:
-  - Scheduling Agent publishes `schedule.expired` event
+  - Scheduling Service publishes `schedule.expired` event
   - Gateway blocks further connections
   - Active sessions are gracefully terminated
-  - Communications Agent sends Slack notification: "Access to Server C has expired"
+  - Communications Service sends Slack notification: "Access to Server C has expired"
 
 ## Flow D: User Provisioning with Automation (New)
 
@@ -259,14 +258,14 @@ Admin requests new user provisioning via Frontend.
 Gateway publishes `user.provision.requested` event to NATS.
 
 Orchestrator Workflow Manager starts "user_provisioning" workflow:
-  - Step 1: License Agent checks if user count is below license limit
-  - Step 2: Identity Agent creates user in Active Directory with groups
-  - Step 3: Activity Agent creates corresponding OpenPAM user record
-  - Step 4: Automation Agent runs Ansible playbook to create home directory
-  - Step 5: Automation Agent runs PowerShell script to set email permissions
-  - Step 6: Activity Agent assigns target access based on user role
-  - Step 7: Communications Agent sends welcome email to new user
-  - Step 8: Communications Agent logs provisioning event to SIEM
+  - Step 1: License Service checks if user count is below license limit
+  - Step 2: Identity Service creates user in Active Directory with groups
+  - Step 3: Activity Service creates corresponding OpenPAM user record
+  - Step 4: Automation Service runs Ansible playbook to create home directory
+  - Step 5: Automation Service runs PowerShell script to set email permissions
+  - Step 6: Activity Service assigns target access based on user role
+  - Step 7: Communications Service sends welcome email to new user
+  - Step 8: Communications Service logs provisioning event to SIEM
 
 If any step fails, Orchestrator executes compensation logic:
   - Rollback AD user creation
@@ -280,16 +279,16 @@ User starts SSH session to production database server.
 
 Gateway publishes `session.started` event to NATS Event Bus.
 
-Communications Agent subscribes to session events:
+Communications Service subscribes to session events:
   - Sends Slack message to #security channel: "User john.doe started privileged session to prod-db-01"
   - Forwards CEF-formatted log to Splunk SIEM
   - Sends email to DBA team (if configured for critical servers)
 
-During session, Activity Agent monitors commands executed.
+During session, Activity Service monitors commands executed.
 
 When session ends, Gateway publishes `session.ended` event.
 
-Communications Agent:
+Communications Service:
   - Sends Slack message: "Session ended. Duration: 15 minutes"
   - Forwards session summary to SIEM with command count and data transferred
 
@@ -337,21 +336,21 @@ Communications Agent:
   - `openpam.license.*` - License events
   - `openpam.automation.*` - Automation events
 
-## Agent-Specific APIs
+## Service-Specific APIs
 
-**Scheduling Agent (Port 8081):**
+**Scheduling Service (Port 8081):**
 - `POST /api/v1/schedules` - Create schedule
 - `GET /api/v1/schedules/{id}` - Get schedule
 - `GET /api/v1/schedules/active` - List active schedules
 - `POST /api/v1/schedules/validate` - Validate access window
 
-**Identity Agent (Port 8082):**
+**Identity Service (Port 8082):**
 - `POST /api/v1/identity/sync/users` - Sync users from AD
 - `POST /api/v1/identity/sync/groups` - Sync groups from AD
 - `GET /api/v1/identity/sync/status` - Get sync status
 - `POST /api/v1/identity/config` - Update AD connection config
 
-**Activity Agent (Port 8083):**
+**Activity Service (Port 8083):**
 - `POST /api/v1/activity/users` - Create user
 - `PUT /api/v1/activity/users/{id}` - Update user
 - `POST /api/v1/activity/users/{id}/enable` - Enable user
@@ -359,20 +358,20 @@ Communications Agent:
 - `POST /api/v1/activity/scripts/powershell` - Execute PowerShell
 - `POST /api/v1/activity/scripts/bash` - Execute Bash script
 
-**Automation Agent (Port 8084):**
+**Automation Service (Port 8084):**
 - `POST /api/v1/automation/playbooks` - Create playbook
 - `POST /api/v1/automation/playbooks/{id}/execute` - Execute playbook
 - `GET /api/v1/automation/executions/{id}` - Get execution status
 - `GET /api/v1/automation/executions/{id}/logs` - Get execution logs
 
-**Communications Agent (Port 8085):**
+**Communications Service (Port 8085):**
 - `POST /api/v1/comms/email` - Send email
 - `POST /api/v1/comms/slack` - Send Slack message
 - `POST /api/v1/comms/teams` - Send Teams message
 - `POST /api/v1/comms/siem` - Forward log to SIEM
 - `GET /api/v1/comms/templates` - List notification templates
 
-**License Agent (Port 8086):**
+**License Service (Port 8086):**
 - `POST /api/v1/license/validate` - Validate license key
 - `GET /api/v1/license/status` - Get license status
 - `GET /api/v1/license/features` - List enabled features
@@ -681,18 +680,18 @@ This model ensures that the sensitive Gateway logic resides in a trusted network
 │  │         ┌────────────────────────┼────────────┼───┼─────┐
 │  │         │                        │            │   │     │
 │  │  ┌──────▼──────┐  ┌──────▼──────▼────┬───────▼───▼──┐  │
-│  │  │ Scheduling  │  │  Identity Agent  │   Activity   │  │
-│  │  │   Agent     │  │  (Port 8082)     │    Agent     │  │
+│  │  │ Scheduling  │  │  Identity Service  │   Activity   │  │
+│  │  │   Service   │  │  (Port 8082)     │    Service   │  │
 │  │  │ (Port 8081) │  │  ┌──────────┐    │ (Port 8083)  │  │
 │  │  └─────────────┘  │  │  AD/LDAP │    └───┬──────────┘  │
 │  │                   │  │  Sync    │        │             │
 │  │  ┌─────────────┐  │  └──────────┘    ┌───▼──────────┐  │
 │  │  │ Automation  │  └─────────────────►│ PowerShell/  │  │
-│  │  │   Agent     │                     │ Bash Scripts │  │
+│  │  │   Service   │                     │ Bash Scripts │  │
 │  │  │ (Port 8084) │                     └──────────────┘  │
 │  │  │ ┌─────────┐ │                                       │
 │  │  │ │ Ansible │ │  ┌──────────────┐  ┌──────────────┐  │
-│  │  │ └─────────┘ │  │ Comms Agent  │  │License Agent │  │
+│  │  │ └─────────┘ │  │ Comms Service  │  │License Service │  │
 │  │  └─────────────┘  │ (Port 8085)  │  │ (Port 8086)  │  │
 │  │                   │ ┌──────────┐ │  └──────────────┘  │
 │  │                   │ │Email/Slack│ │                    │
@@ -744,6 +743,7 @@ This model ensures that the sensitive Gateway logic resides in a trusted network
    ┌──────────────────────┐
    │ External Systems     │
    │ - Active Directory   │
+   │ - Okta               │
    │ - LDAP Servers       │
    │ - Email/SMTP         │
    │ - Slack/Teams APIs   │
@@ -755,12 +755,12 @@ This model ensures that the sensitive Gateway logic resides in a trusted network
 **Service Ports Summary:**
 - Gateway: 8080
 - Orchestrator: 8090
-- Scheduling Agent: 8081
-- Identity Agent: 8082
-- Activity Agent: 8083
-- Automation Agent: 8084
-- Communications Agent: 8085
-- License Agent: 8086
+- Scheduling Service: 8081
+- Identity Service: 8082
+- Activity Service: 8083
+- Automation Service: 8084
+- Communications Service: 8085
+- License Service: 8086
 - PostgreSQL: 5432
 - Redis: 6379
 - NATS: 4222
@@ -777,7 +777,7 @@ This model ensures that the sensitive Gateway logic resides in a trusted network
 **Scalability:**
 - Horizontal scaling: Run multiple instances of each agent
 - Event-driven architecture enables independent scaling
-- Agent auto-discovery via Consul service registry
+- Service auto-discovery via Consul service registry
 
 **Monitoring & Observability:**
 - Prometheus metrics from all services

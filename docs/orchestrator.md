@@ -19,12 +19,12 @@ The OpenPAM Orchestrator is the central coordination layer that manages interact
 └─────────────────────────────────────────────────────────────────┘
                               ▼
         ┌─────────────────────────────────────────────────┐
-        │            Service Subagents                    │
+        │            Service Microservices                    │
         └─────────────────────────────────────────────────┘
                               ▼
 ┌──────────┬──────────┬──────────┬──────────┬──────────┬──────────┐
 │Scheduling│ Identity │ Activity │Automation│  Comms   │ License  │
-│  Agent   │  Agent   │  Agent   │  Agent   │  Agent   │  Agent   │
+│  Service   │  Service   │  Service   │  Service   │  Service   │  Service   │
 └──────────┴──────────┴──────────┴──────────┴──────────┴──────────┘
      │         │          │          │          │          │
      ▼         ▼          ▼          ▼          ▼          ▼
@@ -64,9 +64,9 @@ The OpenPAM Orchestrator is the central coordination layer that manages interact
    - Saga pattern implementation
    - Technology: Redis or etcd
 
-## Subagents
+## Microservices
 
-### 1. Scheduling Agent
+### 1. Scheduling Service
 
 **Purpose:** Manage time-based access control and session scheduling
 
@@ -115,7 +115,7 @@ type Schedule struct {
 
 ---
 
-### 2. Identity Agent (AD/LDAP Connector)
+### 2. Identity Service (AD/LDAP Connector)
 
 **Purpose:** Synchronize users, groups, and resources from Active Directory/LDAP
 
@@ -167,7 +167,7 @@ identity:
 
 ---
 
-### 3. Activity Agent
+### 3. Activity Service
 
 **Purpose:** Execute administrative actions on users and resources
 
@@ -233,7 +233,7 @@ type ScriptExecution struct {
 
 ---
 
-### 4. Automation Agent (Ansible Integration)
+### 4. Automation Service (Ansible Integration)
 
 **Purpose:** Execute infrastructure automation tasks via Ansible
 
@@ -297,7 +297,7 @@ type PlaybookExecution struct {
 
 ---
 
-### 5. Communications Agent
+### 5. Communications Service
 
 **Purpose:** Multi-channel notification and alerting system
 
@@ -389,7 +389,7 @@ proto=ssh msg=User john.doe started privileged session to root@server01
 
 ---
 
-### 6. License Agent
+### 6. License Service
 
 **Purpose:** License validation, enforcement, and usage tracking
 
@@ -479,12 +479,12 @@ workflow:
   trigger: schedule.activated
   steps:
     - name: check_license
-      agent: license
+      service: license
       action: validate_user_limit
       on_failure: notify_admin
 
     - name: create_ad_user
-      agent: identity
+      service: identity
       action: create_user
       input:
         username: ${event.user.username}
@@ -493,7 +493,7 @@ workflow:
       on_failure: rollback
 
     - name: create_openpam_user
-      agent: activity
+      service: activity
       action: create_user
       input:
         username: ${event.user.username}
@@ -501,14 +501,14 @@ workflow:
       depends_on: create_ad_user
 
     - name: grant_access
-      agent: activity
+      service: activity
       action: assign_targets
       input:
         user_id: ${steps.create_openpam_user.output.id}
         targets: ${event.targets}
 
     - name: notify_user
-      agent: comms
+      service: comms
       action: send_email
       template: user_provisioned
       input:
@@ -516,7 +516,7 @@ workflow:
         username: ${event.user.username}
 
     - name: log_siem
-      agent: comms
+      service: comms
       action: send_siem
       input:
         event_type: user_provisioned
@@ -531,7 +531,7 @@ workflow:
   trigger: session.requested
   steps:
     - name: check_schedule
-      agent: scheduling
+      service: scheduling
       action: validate_access_window
       input:
         user_id: ${event.user_id}
@@ -539,31 +539,31 @@ workflow:
       on_failure: deny_access
 
     - name: check_license
-      agent: license
+      service: license
       action: check_concurrent_sessions
       on_failure: deny_access
 
     - name: create_session
-      agent: gateway
+      service: gateway
       action: establish_connection
 
     - name: notify_start
-      agent: comms
+      service: comms
       action: send_notifications
       parallel:
         - send_slack
         - send_siem
 
     - name: wait_session_end
-      agent: gateway
+      service: gateway
       action: monitor_session
 
     - name: capture_activity
-      agent: activity
+      service: activity
       action: log_session_commands
 
     - name: notify_end
-      agent: comms
+      service: comms
       action: send_notifications
       parallel:
         - send_slack
@@ -642,17 +642,17 @@ openpam/
 │   │   └── state/
 │   └── pkg/
 │       └── client/
-├── scheduling-agent/
-├── identity-agent/
-├── activity-agent/
-├── automation-agent/
-├── comms-agent/
-└── license-agent/
+├── scheduling-service/
+├── identity-service/
+├── activity-service/
+├── automation-service/
+├── comms-service/
+└── license-service/
 ```
 
 ### Communication Flow
 ```
-User Request → Gateway → Orchestrator → Event Bus → Subagents
+User Request → Gateway → Orchestrator → Event Bus → Microservices
                   ↓
             License Check
                   ↓
@@ -662,7 +662,7 @@ User Request → Gateway → Orchestrator → Event Bus → Subagents
                   ↓
           Update State
                   ↓
-        Notify via Comms Agent
+        Notify via Comms Service
 ```
 
 ---
@@ -745,10 +745,10 @@ User Request → Gateway → Orchestrator → Event Bus → Subagents
 
 ## API Gateway Pattern
 
-Consider adding an API Gateway in front of subagents:
+Consider adding an API Gateway in front of microservices:
 
 ```
-Client → API Gateway → Orchestrator → Subagents
+Client → API Gateway → Orchestrator → Microservices
             ↓
        - Rate limiting
        - Authentication
@@ -780,20 +780,20 @@ orchestrator:
     type: redis
     url: redis://localhost:6379
 
-agents:
+services:
   scheduling:
-    url: http://scheduling-agent:8081
+    url: http://scheduling-service:8081
     health_check: /health
   identity:
-    url: http://identity-agent:8082
+    url: http://identity-service:8082
   activity:
-    url: http://activity-agent:8083
+    url: http://activity-service:8083
   automation:
-    url: http://automation-agent:8084
+    url: http://automation-service:8084
   comms:
-    url: http://comms-agent:8085
+    url: http://comms-service:8085
   license:
-    url: http://license-agent:8086
+    url: http://license-service:8086
 ```
 
 ---

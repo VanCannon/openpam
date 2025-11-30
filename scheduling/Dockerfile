@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o scheduling-agent ./cmd/scheduling-agent
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o scheduling-agent cmd/main.go
 
 FROM alpine:latest
 

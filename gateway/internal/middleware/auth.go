@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bvanc/openpam/gateway/internal/auth"
-	"github.com/bvanc/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/auth"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
 )
 
 // contextKey is a custom type for context keys
@@ -31,25 +31,26 @@ func RequireAuth(tokenManager *auth.TokenManager, log *logger.Logger) func(http.
 			} else {
 				// Try Authorization header
 				authHeader := r.Header.Get("Authorization")
-				if authHeader == "" {
-					log.Warn("Missing authorization", map[string]interface{}{
-						"path": r.URL.Path,
-					})
-					http.Error(w, "Unauthorized", http.StatusUnauthorized)
-					return
+				if authHeader != "" {
+					// Expect format: "Bearer <token>"
+					parts := strings.SplitN(authHeader, " ", 2)
+					if len(parts) == 2 && parts[0] == "Bearer" {
+						token = parts[1]
+					}
 				}
+			}
 
-				// Expect format: "Bearer <token>"
-				parts := strings.SplitN(authHeader, " ", 2)
-				if len(parts) != 2 || parts[0] != "Bearer" {
-					log.Warn("Invalid authorization header format", map[string]interface{}{
-						"path": r.URL.Path,
-					})
-					http.Error(w, "Unauthorized", http.StatusUnauthorized)
-					return
-				}
+			// If still no token, try query parameter (for WebSockets)
+			if token == "" {
+				token = r.URL.Query().Get("token")
+			}
 
-				token = parts[1]
+			if token == "" {
+				log.Warn("Missing authorization", map[string]interface{}{
+					"path": r.URL.Path,
+				})
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
 			}
 
 			// Validate JWT token

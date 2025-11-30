@@ -8,11 +8,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bvanc/openpam/gateway/internal/config"
-	"github.com/bvanc/openpam/gateway/internal/database"
-	"github.com/bvanc/openpam/gateway/internal/logger"
-	"github.com/bvanc/openpam/gateway/internal/server"
-	"github.com/bvanc/openpam/gateway/internal/vault"
+	"github.com/VanCannon/openpam/gateway/internal/config"
+	"github.com/VanCannon/openpam/gateway/internal/database"
+	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/server"
+	"github.com/VanCannon/openpam/gateway/internal/vault"
 )
 
 func main() {
