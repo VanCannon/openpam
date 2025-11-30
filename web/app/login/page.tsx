@@ -1,18 +1,49 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 
 export default function LoginPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
 
   useEffect(() => {
     if (!loading && user) {
       router.push('/dashboard')
     }
   }, [user, loading, router])
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setIsLoggingIn(true)
+
+    try {
+      const response = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      })
+
+      if (response.ok) {
+        // Reload to get user from context
+        window.location.href = '/dashboard'
+      } else {
+        const data = await response.json().catch(() => ({}))
+        setError(data.message || 'Invalid credentials')
+      }
+    } catch (err) {
+      setError('Failed to login. Please try again.')
+      console.error(err)
+    } finally {
+      setIsLoggingIn(false)
+    }
+  }
 
   const handleDevLogin = (role: 'admin' | 'user' | 'auditor') => {
     const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
@@ -35,9 +66,59 @@ export default function LoginPage() {
           <p className="text-gray-600 dark:text-gray-400">Privileged Access Management</p>
         </div>
 
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Development Mode</h2>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        <form onSubmit={handleLogin} className="space-y-4 mb-8">
+          {error && (
+            <div className="p-3 bg-red-100 text-red-700 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Username
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none"
+              placeholder="Enter your username"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none"
+              placeholder="Enter your password"
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={isLoggingIn}
+            className="w-full px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-semibold disabled:opacity-50"
+          >
+            {isLoggingIn ? 'Logging in...' : 'Login'}
+          </button>
+        </form>
+
+        <div className="relative mb-8">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="px-2 bg-white dark:bg-gray-800 text-gray-500">Or use Dev Mode</span>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Development Mode</h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             Select a role to login as:
           </p>
         </div>

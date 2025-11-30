@@ -18,6 +18,12 @@ type Config struct {
 	Session  SessionConfig
 	Zone     ZoneConfig
 	DevMode  bool // Enable development mode (bypasses EntraID auth)
+	Identity IdentityConfig
+}
+
+// IdentityConfig holds Identity Service configuration
+type IdentityConfig struct {
+	URL string
 }
 
 // ServerConfig holds HTTP server configuration
@@ -123,6 +129,9 @@ func Load() (*Config, error) {
 			HubAddress: getEnv("HUB_ADDRESS", ""),
 		},
 		DevMode: getEnv("DEV_MODE", "false") == "true",
+		Identity: IdentityConfig{
+			URL: getEnv("IDENTITY_URL", "http://localhost:8082"),
+		},
 	}
 
 	if err := cfg.Validate(); err != nil {

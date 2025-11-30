@@ -44,6 +44,59 @@ func RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/v1/ad-computers", GetADComputers).Methods("GET")
 	r.HandleFunc("/api/v1/users/import", ImportADUser).Methods("POST")
 	r.HandleFunc("/api/v1/managed-accounts", GetManagedAccounts).Methods("GET")
+	r.HandleFunc("/api/v1/identity/auth", VerifyCredentials).Methods("POST")
+}
+
+func VerifyCredentials(w http.ResponseWriter, r *http.Request) {
+	var creds struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get config from DB
+	host, port, baseDN, bindDN, bindPassword, _, _, err := db.GetConfig()
+	if err != nil {
+		log.Printf("Failed to get config for auth: %v", err)
+		http.Error(w, "Failed to get configuration", http.StatusInternalServerError)
+		return
+	}
+
+	if host == "" {
+		http.Error(w, "AD configuration not found", http.StatusBadRequest)
+		return
+	}
+
+	client := ldap.NewClient(host, port, baseDN, bindDN, bindPassword)
+	if err := client.Connect(); err != nil {
+		log.Printf("Failed to connect to LDAP: %v", err)
+		http.Error(w, "Failed to connect to directory service", http.StatusInternalServerError)
+		return
+	}
+	defer client.Close()
+
+	// Authenticate
+	userEntry, err := client.Authenticate(creds.Username, creds.Password)
+	if err != nil {
+		log.Printf("Authentication failed for user %s: %v", creds.Username, err)
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// Return user details
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"valid": true,
+		"user": map[string]string{
+			"entra_id":     userEntry.GetAttributeValue("sAMAccountName"),
+			"email":        userEntry.GetAttributeValue("mail"),
+			"display_name": userEntry.GetAttributeValue("displayName"),
+		},
+	})
 }
 
 func SaveConfig(w http.ResponseWriter, r *http.Request) {

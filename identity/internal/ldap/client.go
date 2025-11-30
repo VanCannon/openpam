@@ -142,3 +142,62 @@ func (c *Client) SearchComputers(filter string) ([]*ldap.Entry, error) {
 
 	return sr.Entries, nil
 }
+
+func (c *Client) Authenticate(username, password string) (*ldap.Entry, error) {
+	// 1. Bind as read-only user (already done in Connect, but we might need a fresh connection or re-bind)
+	// Ideally, we should use a separate connection for the user bind to avoid messing up the main connection
+	// But for now, we can try to find the user first, then attempt a bind with their DN
+
+	log.Printf("Authenticating user: %s", username)
+
+	// Find the user to get their DN
+	// Search by sAMAccountName, userPrincipalName, or mail
+	filter := fmt.Sprintf("(&(objectClass=user)(|(sAMAccountName=%s)(userPrincipalName=%s)(mail=%s)))", username, username, username)
+
+	log.Printf("Searching for user with filter: %s", filter)
+	users, err := c.SearchUsers(filter)
+	if err != nil {
+		log.Printf("Search failed: %v", err)
+		return nil, fmt.Errorf("failed to search for user: %v", err)
+	}
+
+	if len(users) == 0 {
+		log.Printf("User not found: %s", username)
+		return nil, fmt.Errorf("user not found")
+	}
+
+	userEntry := users[0]
+	userDN := userEntry.DN
+	log.Printf("Found user DN: %s", userDN)
+
+	// 2. Attempt to bind as the user
+	// Create a new connection for this authentication attempt
+	address := fmt.Sprintf("%s:%d", c.Host, c.Port)
+	var l *ldap.Conn
+
+	if c.Port == 636 {
+		l, err = ldap.DialTLS("tcp", address, &tls.Config{InsecureSkipVerify: true})
+	} else {
+		l, err = ldap.Dial("tcp", address)
+		if err == nil {
+			err = l.StartTLS(&tls.Config{InsecureSkipVerify: true})
+		}
+	}
+
+	if err != nil {
+		log.Printf("Failed to connect for auth bind: %v", err)
+		return nil, fmt.Errorf("failed to connect for auth: %v", err)
+	}
+	defer l.Close()
+
+	// Attempt Bind
+	log.Printf("Attempting Bind with DN: %s", userDN)
+	err = l.Bind(userDN, password)
+	if err != nil {
+		log.Printf("Bind failed for %s: %v", userDN, err)
+		return nil, fmt.Errorf("authentication failed: %v", err)
+	}
+
+	log.Printf("Successfully authenticated user: %s", username)
+	return userEntry, nil
+}

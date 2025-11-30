@@ -97,6 +97,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		log,
 		cfg.DevMode,
 		cfg.Server.FrontendURL,
+		cfg.Identity.URL,
 	)
 
 	targetHandler := handlers.NewTargetHandler(targetRepo, log)
@@ -191,7 +192,13 @@ func (s *Server) setupRoutes() {
 	s.router.HandleFunc("/ready", s.handleReady())
 
 	// Authentication routes (no auth required)
-	s.router.HandleFunc("/api/v1/auth/login", s.authHandler.HandleLogin())
+	s.router.HandleFunc("/api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			s.authHandler.HandleDirectLogin().ServeHTTP(w, r)
+		} else {
+			s.authHandler.HandleLogin().ServeHTTP(w, r)
+		}
+	})
 	s.router.HandleFunc("/api/v1/auth/callback", s.authHandler.HandleCallback())
 	s.router.HandleFunc("/api/v1/auth/logout", s.authHandler.HandleLogout())
 

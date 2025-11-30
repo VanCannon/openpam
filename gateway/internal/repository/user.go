@@ -24,8 +24,8 @@ func NewUserRepository(db *database.DB) *UserRepository {
 // Create creates a new user
 func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 	query := `
-		INSERT INTO users (id, entra_id, email, display_name, enabled, role, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO users (id, entra_id, email, display_name, enabled, role, source, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
 
 	user.ID = uuid.New()
@@ -33,6 +33,9 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 	user.UpdatedAt = time.Now()
 	if user.Role == "" {
 		user.Role = models.RoleUser
+	}
+	if user.Source == "" {
+		user.Source = "local"
 	}
 
 	_, err := r.db.ExecContext(ctx, query,
@@ -42,6 +45,7 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 		user.DisplayName,
 		user.Enabled,
 		user.Role,
+		user.Source,
 		user.CreatedAt,
 		user.UpdatedAt,
 	)
@@ -56,7 +60,7 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 // GetByID retrieves a user by ID
 func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.User, error) {
 	query := `
-		SELECT id, entra_id, email, display_name, enabled, role, created_at, updated_at, last_login_at
+		SELECT id, entra_id, email, display_name, enabled, role, source, created_at, updated_at, last_login_at
 		FROM users
 		WHERE id = $1
 	`
@@ -76,7 +80,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Use
 // GetByEntraID retrieves a user by EntraID
 func (r *UserRepository) GetByEntraID(ctx context.Context, entraID string) (*models.User, error) {
 	query := `
-		SELECT id, entra_id, email, display_name, enabled, role, created_at, updated_at, last_login_at
+		SELECT id, entra_id, email, display_name, enabled, role, source, created_at, updated_at, last_login_at
 		FROM users
 		WHERE entra_id = $1
 	`
@@ -96,7 +100,7 @@ func (r *UserRepository) GetByEntraID(ctx context.Context, entraID string) (*mod
 // GetByEmail retrieves a user by email
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := `
-		SELECT id, entra_id, email, display_name, enabled, role, created_at, updated_at, last_login_at
+		SELECT id, entra_id, email, display_name, enabled, role, source, created_at, updated_at, last_login_at
 		FROM users
 		WHERE email = $1
 	`
@@ -117,8 +121,8 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*models.
 func (r *UserRepository) Update(ctx context.Context, user *models.User) error {
 	query := `
 		UPDATE users
-		SET email = $1, display_name = $2, enabled = $3, role = $4, updated_at = $5
-		WHERE id = $6
+		SET email = $1, display_name = $2, enabled = $3, role = $4, source = $5, updated_at = $6
+		WHERE id = $7
 	`
 
 	user.UpdatedAt = time.Now()
@@ -128,6 +132,7 @@ func (r *UserRepository) Update(ctx context.Context, user *models.User) error {
 		user.DisplayName,
 		user.Enabled,
 		user.Role,
+		user.Source,
 		user.UpdatedAt,
 		user.ID,
 	)
@@ -192,7 +197,7 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // List retrieves all users with pagination
 func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*models.User, error) {
 	query := `
-		SELECT id, entra_id, email, display_name, enabled, role, created_at, updated_at, last_login_at
+		SELECT id, entra_id, email, display_name, enabled, role, source, created_at, updated_at, last_login_at
 		FROM users
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2

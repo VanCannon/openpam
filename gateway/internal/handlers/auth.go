@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -25,6 +26,7 @@ type AuthHandler struct {
 	logger          *logger.Logger
 	devMode         bool
 	frontendURL     string
+	identityURL     string
 }
 
 // NewAuthHandler creates a new authentication handler
@@ -38,6 +40,7 @@ func NewAuthHandler(
 	log *logger.Logger,
 	devMode bool,
 	frontendURL string,
+	identityURL string,
 ) *AuthHandler {
 	return &AuthHandler{
 		entraID:         entraID,
@@ -49,6 +52,7 @@ func NewAuthHandler(
 		logger:          log,
 		devMode:         devMode,
 		frontendURL:     frontendURL,
+		identityURL:     identityURL,
 	}
 }
 
@@ -545,4 +549,178 @@ func getClientIP(r *http.Request) string {
 
 	// Fall back to RemoteAddr
 	return r.RemoteAddr
+}
+
+// HandleDirectLogin handles username/password login against Identity Service
+func (h *AuthHandler) HandleDirectLogin() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var creds struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Call Identity Service to verify credentials
+		// Use configured Identity URL
+		identityURL := fmt.Sprintf("%s/api/v1/identity/auth", h.identityURL)
+
+		reqBody, _ := json.Marshal(creds)
+		resp, err := http.Post(identityURL, "application/json", bytes.NewBuffer(reqBody))
+		if err != nil {
+			h.logger.Error("Failed to call identity service", map[string]interface{}{
+				"error": err.Error(),
+			})
+			http.Error(w, "Authentication service unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			h.logger.Warn("Identity service rejected credentials", map[string]interface{}{
+				"username": creds.Username,
+				"status":   resp.StatusCode,
+			})
+			http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+			return
+		}
+
+		var authResp struct {
+			Valid bool `json:"valid"`
+			User  struct {
+				EntraID     string `json:"entra_id"`
+				Email       string `json:"email"`
+				DisplayName string `json:"display_name"`
+			} `json:"user"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
+			h.logger.Error("Failed to decode identity response", map[string]interface{}{
+				"error": err.Error(),
+			})
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		if !authResp.Valid {
+			http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+			return
+		}
+
+		// User is authenticated, proceed to create session
+		ctx := r.Context()
+
+		// Get or create user in database
+		// We use the AD SAMAccountName as the EntraID for now, or we could use a different field
+		// The Identity Service returns "entra_id" mapped from sAMAccountName
+		user, err := h.userRepo.GetOrCreate(ctx, authResp.User.EntraID, authResp.User.Email, authResp.User.DisplayName)
+		if err != nil {
+			h.logger.Error("Failed to get or create user", map[string]interface{}{
+				"error": err.Error(),
+			})
+			http.Error(w, "Failed to create user", http.StatusInternalServerError)
+			return
+		}
+
+		// Update source to active_directory if it's not already
+		if user.Source != "active_directory" {
+			user.Source = "active_directory"
+			h.userRepo.Update(ctx, user)
+		}
+
+		// Check if user is enabled
+		if !user.Enabled {
+			h.logger.Warn("Disabled user attempted login", map[string]interface{}{
+				"user_id": user.ID.String(),
+				"email":   user.Email,
+			})
+			http.Error(w, "Account disabled", http.StatusForbidden)
+			return
+		}
+
+		// Generate JWT token
+		jwtToken, err := h.tokenManager.GenerateToken(
+			user.ID.String(),
+			user.Email,
+			user.DisplayName,
+			user.Role,
+		)
+		if err != nil {
+			h.logger.Error("Failed to generate token", map[string]interface{}{
+				"error": err.Error(),
+			})
+			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+			return
+		}
+
+		// Create session
+		sessionID, err := auth.GenerateSessionID()
+		if err != nil {
+			h.logger.Error("Failed to generate session ID", map[string]interface{}{
+				"error": err.Error(),
+			})
+			http.Error(w, "Failed to create session", http.StatusInternalServerError)
+			return
+		}
+
+		session := &auth.Session{
+			ID:          sessionID,
+			UserID:      user.ID.String(),
+			Email:       user.Email,
+			DisplayName: user.DisplayName,
+			CreatedAt:   time.Now(),
+			ExpiresAt:   time.Now().Add(24 * time.Hour),
+			Data:        make(map[string]interface{}),
+		}
+
+		if err := h.sessionStore.Create(ctx, session); err != nil {
+			h.logger.Error("Failed to create session", map[string]interface{}{
+				"error": err.Error(),
+			})
+			http.Error(w, "Failed to create session", http.StatusInternalServerError)
+			return
+		}
+
+		// Set cookie with JWT token
+		http.SetCookie(w, &http.Cookie{
+			Name:     "openpam_token",
+			Value:    jwtToken,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   r.TLS != nil,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   86400, // 24 hours
+		})
+
+		h.logger.Info("User logged in successfully via AD", map[string]interface{}{
+			"user_id": user.ID.String(),
+			"email":   user.Email,
+		})
+
+		// Log successful login
+		clientIP := getClientIP(r)
+		userAgent := r.UserAgent()
+		h.logAuthEvent(ctx, models.EventTypeLoginSuccess, &user.ID, models.AuditStatusSuccess, &clientIP, map[string]interface{}{
+			"email":      user.Email,
+			"user_agent": userAgent,
+			"method":     "active_directory",
+		})
+
+		// Return success response
+		response := map[string]interface{}{
+			"success": true,
+			"user": map[string]interface{}{
+				"id":           user.ID.String(),
+				"email":        user.Email,
+				"display_name": user.DisplayName,
+				"role":         user.Role,
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}
 }
