@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"openpam/identity/internal/db"
@@ -22,6 +24,7 @@ type SyncRequest struct {
 	BindPassword   string `json:"bind_password"`
 	UserFilter     string `json:"user_filter"`
 	ComputerFilter string `json:"computer_filter"`
+	GroupFilter    string `json:"group_filter"`
 }
 
 type ConfigRequest struct {
@@ -32,6 +35,7 @@ type ConfigRequest struct {
 	BindPassword   string `json:"bind_password"`
 	UserFilter     string `json:"user_filter"`
 	ComputerFilter string `json:"computer_filter"`
+	GroupFilter    string `json:"group_filter"`
 }
 
 func RegisterRoutes(r *mux.Router) {
@@ -42,7 +46,9 @@ func RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/v1/computers", GetComputers).Methods("GET")
 	r.HandleFunc("/api/v1/ad-users", GetADUsers).Methods("GET")
 	r.HandleFunc("/api/v1/ad-computers", GetADComputers).Methods("GET")
+	r.HandleFunc("/api/v1/ad-groups", GetADGroups).Methods("GET")
 	r.HandleFunc("/api/v1/users/import", ImportADUser).Methods("POST")
+	r.HandleFunc("/api/v1/groups/import", ImportADGroup).Methods("POST")
 	r.HandleFunc("/api/v1/managed-accounts", GetManagedAccounts).Methods("GET")
 	r.HandleFunc("/api/v1/identity/auth", VerifyCredentials).Methods("POST")
 }
@@ -59,7 +65,7 @@ func VerifyCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get config from DB
-	host, port, baseDN, bindDN, bindPassword, _, _, err := db.GetConfig()
+	host, port, baseDN, bindDN, bindPassword, _, _, _, err := db.GetConfig()
 	if err != nil {
 		log.Printf("Failed to get config for auth: %v", err)
 		http.Error(w, "Failed to get configuration", http.StatusInternalServerError)
@@ -95,8 +101,21 @@ func VerifyCredentials(w http.ResponseWriter, r *http.Request) {
 			"entra_id":     userEntry.GetAttributeValue("sAMAccountName"),
 			"email":        userEntry.GetAttributeValue("mail"),
 			"display_name": userEntry.GetAttributeValue("displayName"),
+			"groups":       getGroups(userEntry),
 		},
 	})
+}
+
+type ldapEntry interface {
+	GetAttributeValues(string) []string
+}
+
+func getGroups(entry ldapEntry) string {
+	// memberOf attribute contains list of DNs
+	groups := entry.GetAttributeValues("memberOf")
+	// Convert to JSON array string
+	b, _ := json.Marshal(groups)
+	return string(b)
 }
 
 func SaveConfig(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +125,7 @@ func SaveConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := db.SaveConfig(req.Host, req.Port, req.BaseDN, req.BindDN, req.BindPassword, req.UserFilter, req.ComputerFilter); err != nil {
+	if err := db.SaveConfig(req.Host, req.Port, req.BaseDN, req.BindDN, req.BindPassword, req.UserFilter, req.ComputerFilter, req.GroupFilter); err != nil {
 		log.Printf("Failed to save config: %v", err)
 		http.Error(w, "Failed to save config", http.StatusInternalServerError)
 		return
@@ -117,7 +136,7 @@ func SaveConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetConfig(w http.ResponseWriter, r *http.Request) {
-	host, port, baseDN, bindDN, bindPassword, userFilter, computerFilter, err := db.GetConfig()
+	host, port, baseDN, bindDN, bindPassword, userFilter, computerFilter, groupFilter, err := db.GetConfig()
 	if err != nil {
 		log.Printf("Failed to get config: %v", err)
 		http.Error(w, "Failed to get config", http.StatusInternalServerError)
@@ -133,12 +152,13 @@ func GetConfig(w http.ResponseWriter, r *http.Request) {
 		BindPassword:   bindPassword,
 		UserFilter:     userFilter,
 		ComputerFilter: computerFilter,
+		GroupFilter:    groupFilter,
 	})
 }
 
 func SyncAD(w http.ResponseWriter, r *http.Request) {
 	// Try to get config from DB first
-	host, port, baseDN, bindDN, bindPassword, userFilter, computerFilter, err := db.GetConfig()
+	host, port, baseDN, bindDN, bindPassword, userFilter, computerFilter, groupFilter, err := db.GetConfig()
 	if err != nil {
 		log.Printf("Failed to get config for sync: %v", err)
 		http.Error(w, "Failed to get config", http.StatusInternalServerError)
@@ -238,6 +258,28 @@ func SyncAD(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Sync Groups
+	ldapGroups, err := client.SearchGroups(groupFilter)
+	if err != nil {
+		log.Printf("Failed to search groups: %v", err)
+	}
+
+	// Parse AD Groups
+	var adGroups []db.ADGroup
+	for _, g := range ldapGroups {
+		name := g.GetAttributeValue("name")
+		id := uuid.NewSHA1(uuid.NameSpaceURL, []byte("ad-group:"+name)).String()
+		members := g.GetAttributeValues("member")
+
+		adGroups = append(adGroups, db.ADGroup{
+			ID:          id,
+			DN:          g.DN,
+			Name:        name,
+			Description: g.GetAttributeValue("description"),
+			MemberCount: len(members),
+		})
+	}
+
 	// Save to DB
 	if err := db.SaveADUsers(adUsers); err != nil {
 		log.Printf("Failed to save AD users: %v", err)
@@ -251,13 +293,20 @@ func SyncAD(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Synced %d users and %d computers", len(adUsers), len(adComputers))
+	if err := db.SaveADGroups(adGroups); err != nil {
+		log.Printf("Failed to save AD groups: %v", err)
+		http.Error(w, "Failed to save AD groups", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Synced %d users, %d computers, %d groups", len(adUsers), len(adComputers), len(adGroups))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":          "success",
 		"users_count":     len(adUsers),
 		"computers_count": len(adComputers),
+		"groups_count":    len(adGroups),
 	})
 }
 
@@ -298,6 +347,20 @@ func GetADComputers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"computers": computers,
+	})
+}
+
+func GetADGroups(w http.ResponseWriter, r *http.Request) {
+	groups, err := db.GetADGroups()
+	if err != nil {
+		log.Printf("Failed to get AD groups: %v", err)
+		http.Error(w, "Failed to get AD groups", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"groups": groups,
 	})
 }
 
@@ -374,6 +437,63 @@ func ImportADUser(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to import user", http.StatusInternalServerError)
 			return
 		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+func ImportADGroup(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ADGroupID string `json:"ad_group_id"`
+		Role      string `json:"role"`
+	}
+	// Debug logging
+	bodyBytes, _ := io.ReadAll(r.Body)
+	log.Printf("ImportADGroup received body: %s", string(bodyBytes))
+	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("Failed to decode request body: %v", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get AD group details
+	adGroups, err := db.GetADGroups() // TODO: Optimize
+	if err != nil {
+		http.Error(w, "Failed to fetch AD groups", http.StatusInternalServerError)
+		return
+	}
+
+	var targetGroup *db.ADGroup
+	for _, g := range adGroups {
+		if g.ID == req.ADGroupID {
+			targetGroup = &g
+			break
+		}
+	}
+
+	if targetGroup == nil {
+		log.Printf("AD group not found for ID: %s", req.ADGroupID)
+		http.Error(w, "AD group not found", http.StatusNotFound)
+		return
+	}
+
+	// Save to groups table
+	group := db.Group{
+		ID:          targetGroup.ID,
+		Name:        targetGroup.Name,
+		DN:          targetGroup.DN,
+		Description: targetGroup.Description,
+		Role:        req.Role,
+		Source:      "active_directory",
+	}
+
+	if err := db.SaveGroups([]db.Group{group}); err != nil {
+		log.Printf("Failed to import AD group: %v", err)
+		http.Error(w, "Failed to import group", http.StatusInternalServerError)
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)

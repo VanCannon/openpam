@@ -12,11 +12,11 @@ import (
 var DB *sql.DB
 
 func InitDB() error {
-	host := os.Getenv("POSTGRES_HOST")
-	port := os.Getenv("POSTGRES_PORT")
-	user := os.Getenv("POSTGRES_USER")
-	password := os.Getenv("POSTGRES_PASSWORD")
-	dbname := os.Getenv("POSTGRES_DB")
+	host := os.Getenv("DB_HOST")
+	port := os.Getenv("DB_PORT")
+	user := os.Getenv("DB_USER")
+	password := os.Getenv("DB_PASSWORD")
+	dbname := os.Getenv("DB_NAME")
 
 	psqlInfo := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		host, port, user, password, dbname)
@@ -88,6 +88,25 @@ type ADComputer struct {
 	LastSync               string `json:"last_sync"`
 }
 
+type ADGroup struct {
+	ID          string `json:"id"` // GUID
+	DN          string `json:"dn"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	MemberCount int    `json:"member_count"`
+	LastSync    string `json:"last_sync"`
+}
+
+type Group struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DN          string `json:"dn"`
+	Description string `json:"description"`
+	Role        string `json:"role"`
+	Source      string `json:"source"`
+	CreatedAt   string `json:"created_at"`
+}
+
 func createTables() error {
 	query := `
 	CREATE TABLE IF NOT EXISTS ad_config (
@@ -98,6 +117,7 @@ func createTables() error {
 		bind_dn TEXT NOT NULL,
 		bind_password TEXT NOT NULL,
 		user_filter TEXT NOT NULL,
+		group_filter TEXT NOT NULL DEFAULT '(objectClass=group)',
 		computer_filter TEXT NOT NULL DEFAULT '(objectClass=computer)',
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -155,6 +175,25 @@ func createTables() error {
 		operating_system_version TEXT,
 		last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
+
+	CREATE TABLE IF NOT EXISTS ad_groups (
+		id TEXT PRIMARY KEY,
+		dn TEXT,
+		name TEXT,
+		description TEXT,
+		member_count INTEGER,
+		last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS groups (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		dn TEXT,
+		description TEXT,
+		role TEXT DEFAULT 'user',
+		source TEXT DEFAULT 'active_directory',
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 	_, err := DB.Exec(query)
 	if err != nil {
@@ -164,6 +203,7 @@ func createTables() error {
 	// Migration: Add computer_filter if it doesn't exist (for existing deployments)
 	// We can ignore error if column already exists
 	_, _ = DB.Exec(`ALTER TABLE ad_config ADD COLUMN IF NOT EXISTS computer_filter TEXT NOT NULL DEFAULT '(objectClass=computer)'`)
+	_, _ = DB.Exec(`ALTER TABLE ad_config ADD COLUMN IF NOT EXISTS group_filter TEXT NOT NULL DEFAULT '(objectClass=group)'`)
 
 	// Migration: Add source column to users table if it doesn't exist
 	_, _ = DB.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'local'`)
@@ -171,10 +211,16 @@ func createTables() error {
 	// Migration: Add entra_id column to users table if it doesn't exist
 	_, _ = DB.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS entra_id TEXT`)
 
+	// Migration: Add dn and description columns to groups table if they don't exist
+	_, _ = DB.Exec(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS dn TEXT`)
+	_, _ = DB.Exec(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS description TEXT`)
+	_, _ = DB.Exec(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'`)
+	_, _ = DB.Exec(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'active_directory'`)
+
 	return nil
 }
 
-func SaveConfig(host string, port int, baseDN, bindDN, bindPassword, userFilter, computerFilter string) error {
+func SaveConfig(host string, port int, baseDN, bindDN, bindPassword, userFilter, computerFilter, groupFilter string) error {
 	// Upsert logic: check if exists, update if so, else insert
 	// For simplicity, we'll assume single config row for now and just delete/insert or update ID=1
 
@@ -188,31 +234,31 @@ func SaveConfig(host string, port int, baseDN, bindDN, bindPassword, userFilter,
 	if count > 0 {
 		_, err = DB.Exec(`
 			UPDATE ad_config 
-			SET host=$1, port=$2, base_dn=$3, bind_dn=$4, bind_password=$5, user_filter=$6, computer_filter=$7, updated_at=CURRENT_TIMESTAMP
-		`, host, port, baseDN, bindDN, bindPassword, userFilter, computerFilter)
+			SET host=$1, port=$2, base_dn=$3, bind_dn=$4, bind_password=$5, user_filter=$6, computer_filter=$7, group_filter=$8, updated_at=CURRENT_TIMESTAMP
+		`, host, port, baseDN, bindDN, bindPassword, userFilter, computerFilter, groupFilter)
 	} else {
 		_, err = DB.Exec(`
-			INSERT INTO ad_config (host, port, base_dn, bind_dn, bind_password, user_filter, computer_filter)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, host, port, baseDN, bindDN, bindPassword, userFilter, computerFilter)
+			INSERT INTO ad_config (host, port, base_dn, bind_dn, bind_password, user_filter, computer_filter, group_filter)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`, host, port, baseDN, bindDN, bindPassword, userFilter, computerFilter, groupFilter)
 	}
 	return err
 }
 
-func GetConfig() (string, int, string, string, string, string, string, error) {
-	var host, baseDN, bindDN, bindPassword, userFilter, computerFilter string
+func GetConfig() (string, int, string, string, string, string, string, string, error) {
+	var host, baseDN, bindDN, bindPassword, userFilter, computerFilter, groupFilter string
 	var port int
 
 	err := DB.QueryRow(`
-		SELECT host, port, base_dn, bind_dn, bind_password, user_filter, computer_filter 
+		SELECT host, port, base_dn, bind_dn, bind_password, user_filter, computer_filter, group_filter 
 		FROM ad_config 
 		ORDER BY id DESC LIMIT 1
-	`).Scan(&host, &port, &baseDN, &bindDN, &bindPassword, &userFilter, &computerFilter)
+	`).Scan(&host, &port, &baseDN, &bindDN, &bindPassword, &userFilter, &computerFilter, &groupFilter)
 
 	if err == sql.ErrNoRows {
-		return "", 0, "", "", "", "", "", nil
+		return "", 0, "", "", "", "", "", "", nil
 	}
-	return host, port, baseDN, bindDN, bindPassword, userFilter, computerFilter, err
+	return host, port, baseDN, bindDN, bindPassword, userFilter, computerFilter, groupFilter, err
 }
 
 func SaveADUsers(users []ADUser) error {
@@ -454,4 +500,95 @@ func GetComputers() ([]Computer, error) {
 		computers = append(computers, c)
 	}
 	return computers, nil
+}
+
+func SaveADGroups(groups []ADGroup) error {
+	stmt, err := DB.Prepare(`
+		INSERT INTO ad_groups (id, dn, name, description, member_count, last_sync)
+		VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+		ON CONFLICT (id) DO UPDATE SET
+		dn = EXCLUDED.dn,
+		name = EXCLUDED.name,
+		description = EXCLUDED.description,
+		member_count = EXCLUDED.member_count,
+		last_sync = CURRENT_TIMESTAMP
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, g := range groups {
+		_, err := stmt.Exec(g.ID, g.DN, g.Name, g.Description, g.MemberCount)
+		if err != nil {
+			log.Printf("Failed to save AD group %s: %v", g.Name, err)
+		}
+	}
+	return nil
+}
+
+func GetADGroups() ([]ADGroup, error) {
+	rows, err := DB.Query(`SELECT id, dn, name, description, member_count, last_sync FROM ad_groups`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var groups []ADGroup
+	for rows.Next() {
+		var g ADGroup
+		if err := rows.Scan(&g.ID, &g.DN, &g.Name, &g.Description, &g.MemberCount, &g.LastSync); err != nil {
+			return nil, err
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
+}
+
+func SaveGroups(groups []Group) error {
+	stmt, err := DB.Prepare(`
+		INSERT INTO groups (id, name, dn, description, role, source)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (id) DO UPDATE SET
+		name = EXCLUDED.name,
+		dn = EXCLUDED.dn,
+		description = EXCLUDED.description,
+		role = EXCLUDED.role,
+		source = EXCLUDED.source
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, g := range groups {
+		_, err := stmt.Exec(g.ID, g.Name, g.DN, g.Description, g.Role, g.Source)
+		if err != nil {
+			log.Printf("Failed to save group %s: %v", g.Name, err)
+		}
+	}
+	return nil
+}
+
+func GetGroups() ([]Group, error) {
+	rows, err := DB.Query(`SELECT id, name, dn, description, role, source, created_at FROM groups`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var groups []Group
+	for rows.Next() {
+		var g Group
+		if err := rows.Scan(&g.ID, &g.Name, &g.DN, &g.Description, &g.Role, &g.Source, &g.CreatedAt); err != nil {
+			return nil, err
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
+}
+
+func DeleteGroup(id string) error {
+	_, err := DB.Exec("DELETE FROM groups WHERE id = $1", id)
+	return err
 }

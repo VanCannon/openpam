@@ -85,6 +85,9 @@ export interface ApiResponse<T> {
 
 export interface ListResponse<T> {
   items?: T[]
+  zones?: T[]
+  users?: T[]
+  groups?: T[]
   targets?: T[]
   credentials?: T[]
   schedules?: T[]

@@ -27,8 +27,17 @@ interface ADComputer {
     last_sync: string
 }
 
+interface ADGroup {
+    id: string
+    dn: string
+    name: string
+    description: string
+    member_count: number
+    last_sync: string
+}
+
 export default function IdentityPage() {
-    const [activeTab, setActiveTab] = useState<'users' | 'computers'>('users')
+    const [activeTab, setActiveTab] = useState<'users' | 'computers' | 'groups'>('users')
     const [loading, setLoading] = useState(false)
     const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle')
     const [lastSync, setLastSync] = useState<string | null>(null)
@@ -39,11 +48,14 @@ export default function IdentityPage() {
         bind_dn: '',
         bind_password: '',
         user_filter: '(objectClass=user)',
-        computer_filter: '(objectClass=computer)'
+        computer_filter: '(objectClass=computer)',
+        group_filter: '(objectClass=group)'
     })
     const [adUsers, setAdUsers] = useState<ADUser[]>([])
     const [adComputers, setAdComputers] = useState<ADComputer[]>([])
+    const [adGroups, setAdGroups] = useState<ADGroup[]>([])
     const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set())
+    const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set())
     const [showImportModal, setShowImportModal] = useState(false)
     const [importRole, setImportRole] = useState('user')
     const [importing, setImporting] = useState(false)
@@ -72,6 +84,11 @@ export default function IdentityPage() {
             .then(res => res.json())
             .then(data => setAdComputers(data.computers || []))
             .catch(err => console.error('Failed to fetch AD computers:', err))
+
+        fetch('/api/v1/ad-groups')
+            .then(res => res.json())
+            .then(data => setAdGroups(data.groups || []))
+            .catch(err => console.error('Failed to fetch AD groups:', err))
     }
 
     const handleSaveConfig = async (e: React.FormEvent) => {
@@ -121,33 +138,69 @@ export default function IdentityPage() {
         setSelectedUsers(newSelected)
     }
 
-    const handleSelectAll = () => {
-        if (selectedUsers.size === adUsers.length) {
-            setSelectedUsers(new Set())
+    const handleSelectGroup = (id: string) => {
+        const newSelected = new Set(selectedGroups)
+        if (newSelected.has(id)) {
+            newSelected.delete(id)
         } else {
-            setSelectedUsers(new Set(adUsers.map(u => u.id)))
+            newSelected.add(id)
+        }
+        setSelectedGroups(newSelected)
+    }
+
+    const handleSelectAll = () => {
+        if (activeTab === 'users') {
+            if (selectedUsers.size === adUsers.length) {
+                setSelectedUsers(new Set())
+            } else {
+                setSelectedUsers(new Set(adUsers.map(u => u.id)))
+            }
+        } else if (activeTab === 'groups') {
+            if (selectedGroups.size === adGroups.length) {
+                setSelectedGroups(new Set())
+            } else {
+                setSelectedGroups(new Set(adGroups.map(g => g.id)))
+            }
         }
     }
 
     const handleImport = async () => {
         setImporting(true)
         try {
-            for (const userId of Array.from(selectedUsers)) {
-                const res = await fetch('/api/v1/users/import', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        ad_user_id: userId,
-                        role: importRole
+            if (activeTab === 'users') {
+                for (const userId of Array.from(selectedUsers)) {
+                    const res = await fetch('/api/v1/users/import', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ad_user_id: userId,
+                            role: importRole
+                        })
                     })
-                })
-                if (!res.ok) {
-                    throw new Error(`Failed to import user ${userId}: ${res.statusText}`)
+                    if (!res.ok) {
+                        throw new Error(`Failed to import user ${userId}: ${res.statusText}`)
+                    }
                 }
+                alert('Users imported successfully')
+                setSelectedUsers(new Set())
+            } else if (activeTab === 'groups') {
+                for (const groupId of Array.from(selectedGroups)) {
+                    const res = await fetch('/api/v1/groups/import', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ad_group_id: groupId,
+                            role: importRole
+                        })
+                    })
+                    if (!res.ok) {
+                        throw new Error(`Failed to import group ${groupId}: ${res.statusText}`)
+                    }
+                }
+                alert('Groups imported successfully')
+                setSelectedGroups(new Set())
             }
-            alert('Users imported successfully')
             setShowImportModal(false)
-            setSelectedUsers(new Set())
             // Optionally refresh users list if we were displaying it here, but we aren't.
         } catch (error) {
             console.error('Import failed:', error)
@@ -270,6 +323,15 @@ export default function IdentityPage() {
                                         onChange={e => setConfig({ ...config, computer_filter: e.target.value })}
                                     />
                                 </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Group Filter</label>
+                                    <input
+                                        type="text"
+                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                        value={config.group_filter}
+                                        onChange={e => setConfig({ ...config, group_filter: e.target.value })}
+                                    />
+                                </div>
                                 <div className="pt-4">
                                     <Button variant="outline" className="w-full">Update Filters</Button>
                                 </div>
@@ -348,6 +410,15 @@ export default function IdentityPage() {
                         >
                             AD Computers ({adComputers.length})
                         </button>
+                        <button
+                            onClick={() => setActiveTab('groups')}
+                            className={`${activeTab === 'groups'
+                                ? 'border-indigo-500 text-indigo-600'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                        >
+                            AD Groups ({adGroups.length})
+                        </button>
                     </nav>
                     {activeTab === 'users' && (
                         <div className="pb-2">
@@ -357,6 +428,17 @@ export default function IdentityPage() {
                                 variant="default"
                             >
                                 Add to OpenPAM ({selectedUsers.size})
+                            </Button>
+                        </div>
+                    )}
+                    {activeTab === 'groups' && (
+                        <div className="pb-2">
+                            <Button
+                                onClick={() => setShowImportModal(true)}
+                                disabled={selectedGroups.size === 0}
+                                variant="default"
+                            >
+                                Add to OpenPAM ({selectedGroups.size})
                             </Button>
                         </div>
                     )}
@@ -459,15 +541,65 @@ export default function IdentityPage() {
                         </div>
                     </div>
                 )}
+
+                {activeTab === 'groups' && (
+                    <div className="bg-white shadow rounded-lg overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            <input
+                                                type="checkbox"
+                                                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                                checked={adGroups.length > 0 && selectedGroups.size === adGroups.length}
+                                                onChange={handleSelectAll}
+                                            />
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Members</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Sync</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {adGroups.map((group) => (
+                                        <tr key={group.id}>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <input
+                                                    type="checkbox"
+                                                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                                    checked={selectedGroups.has(group.id)}
+                                                    onChange={() => handleSelectGroup(group.id)}
+                                                />
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{group.name}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{group.description}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{group.member_count}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(group.last_sync).toLocaleString()}</td>
+                                        </tr>
+                                    ))}
+                                    {adGroups.length === 0 && (
+                                        <tr>
+                                            <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">No AD groups found. Run a sync to populate.</td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
             </main>
 
             {/* Import Role Modal */}
             {showImportModal && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                     <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-                        <h2 className="text-xl font-bold text-gray-900 mb-4">Add Users to OpenPAM</h2>
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">
+                            {activeTab === 'users' ? 'Add Users to OpenPAM' : 'Add Groups to OpenPAM'}
+                        </h2>
                         <p className="text-gray-600 mb-6">
-                            Select a role for the {selectedUsers.size} selected user{selectedUsers.size !== 1 ? 's' : ''}.
+                            Select a role for the {activeTab === 'users' ? selectedUsers.size : selectedGroups.size} selected {activeTab === 'users' ? (selectedUsers.size !== 1 ? 'users' : 'user') : (selectedGroups.size !== 1 ? 'groups' : 'group')}.
                         </p>
 
                         <div className="space-y-3 mb-6">

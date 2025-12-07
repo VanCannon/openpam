@@ -16,15 +16,29 @@ interface User {
   last_login_at?: string
 }
 
+interface Group {
+  id: string
+  name: string
+  dn: string
+  description: string
+  role: string
+  source: string
+  created_at: string
+}
+
 export default function UsersManagementPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
   const [users, setUsers] = useState<User[]>([])
+  const [groups, setGroups] = useState<Group[]>([])
   const [loadingUsers, setLoadingUsers] = useState(true)
+  const [loadingGroups, setLoadingGroups] = useState(true)
+  const [activeTab, setActiveTab] = useState<'users' | 'groups'>('users')
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [userToDelete, setUserToDelete] = useState<User | null>(null)
+  const [groupToDelete, setGroupToDelete] = useState<Group | null>(null)
 
   useEffect(() => {
     if (!loading && (!user || user.role !== 'admin')) {
@@ -35,6 +49,7 @@ export default function UsersManagementPage() {
   useEffect(() => {
     if (user?.role === 'admin') {
       fetchUsers()
+      fetchGroups()
     }
   }, [user])
 
@@ -53,6 +68,23 @@ export default function UsersManagementPage() {
       console.error('Failed to fetch users:', error)
     } finally {
       setLoadingUsers(false)
+    }
+  }
+
+  const fetchGroups = async () => {
+    try {
+      setLoadingGroups(true)
+      const response = await fetch('/api/v1/groups', {
+        credentials: 'include'
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setGroups(data.groups || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch groups:', error)
+    } finally {
+      setLoadingGroups(false)
     }
   }
 
@@ -111,6 +143,25 @@ export default function UsersManagementPage() {
     }
   }
 
+  const handleDeleteGroup = async () => {
+    if (!groupToDelete) return
+
+    try {
+      const response = await fetch(`/api/v1/groups/${groupToDelete.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      })
+
+      if (response.ok) {
+        fetchGroups()
+        setShowDeleteModal(false)
+        setGroupToDelete(null)
+      }
+    } catch (error) {
+      console.error('Failed to delete group:', error)
+    }
+  }
+
   if (loading || user?.role !== 'admin') {
     return null
   }
@@ -122,118 +173,229 @@ export default function UsersManagementPage() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">User Management</h1>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">Manage users and assign roles</p>
+          <p className="mt-2 text-gray-600 dark:text-gray-400">Manage users and groups</p>
+        </div>
+
+        {/* Tabs */}
+        <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              onClick={() => setActiveTab('users')}
+              className={`${activeTab === 'users'
+                ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+            >
+              Users ({users.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('groups')}
+              className={`${activeTab === 'groups'
+                ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+            >
+              Groups ({groups.length})
+            </button>
+          </nav>
         </div>
 
         {/* Users Table */}
-        <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-700">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                  User
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                  Role
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                  Source
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                  Last Login
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {loadingUsers ? (
+        {activeTab === 'users' && (
+          <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg overflow-hidden">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <td colSpan={6} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                    Loading users...
-                  </td>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    User
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Role
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Source
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Last Login
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Actions
+                  </th>
                 </tr>
-              ) : users.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                    No users found
-                  </td>
-                </tr>
-              ) : (
-                users.map((u) => (
-                  <tr key={u.id}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900 dark:text-white">
-                            {u.display_name || u.email}
-                          </div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400">
-                            {u.email}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${u.role === 'admin' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
-                        u.role === 'auditor' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
-                          'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                        }`}>
-                        {u.role}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${u.source === 'active_directory'
-                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-                        : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                        }`}>
-                        {u.source === 'active_directory' ? 'Active Directory' : 'Local'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <button
-                        onClick={() => handleToggleEnabled(u.id, !u.enabled)}
-                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${u.enabled
-                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                          : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                          }`}
-                      >
-                        {u.enabled ? 'Active' : 'Disabled'}
-                      </button>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {u.last_login_at ? new Date(u.last_login_at).toLocaleString() : 'Never'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => {
-                          setSelectedUser(u)
-                          setShowEditModal(true)
-                        }}
-                        className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 mr-4"
-                      >
-                        Edit Role
-                      </button>
-                      <button
-                        onClick={() => {
-                          setUserToDelete(u)
-                          setShowDeleteModal(true)
-                        }}
-                        className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
-                      >
-                        Delete
-                      </button>
+              </thead>
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                {loadingUsers ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                      Loading users...
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : users.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                      No users found
+                    </td>
+                  </tr>
+                ) : (
+                  users.map((u) => (
+                    <tr key={u.id}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                              {u.display_name || u.email}
+                            </div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                              {u.email}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${u.role === 'admin' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
+                          u.role === 'auditor' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                            'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                          }`}>
+                          {u.role}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${u.source === 'active_directory'
+                          ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                          : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                          }`}>
+                          {u.source === 'active_directory' ? 'Active Directory' : 'Local'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <button
+                          onClick={() => handleToggleEnabled(u.id, !u.enabled)}
+                          className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${u.enabled
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                            }`}
+                        >
+                          {u.enabled ? 'Active' : 'Disabled'}
+                        </button>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                        {u.last_login_at ? new Date(u.last_login_at).toLocaleString() : 'Never'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button
+                          onClick={() => {
+                            setSelectedUser(u)
+                            setShowEditModal(true)
+                          }}
+                          className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 mr-4"
+                        >
+                          Edit Role
+                        </button>
+                        <button
+                          onClick={() => {
+                            setUserToDelete(u)
+                            setShowDeleteModal(true)
+                          }}
+                          className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Groups Table */}
+        {activeTab === 'groups' && (
+          <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg overflow-hidden">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-700">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Group Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Role
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Source
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Description
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                {loadingGroups ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                      Loading groups...
+                    </td>
+                  </tr>
+                ) : groups.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                      No groups found
+                    </td>
+                  </tr>
+                ) : (
+                  groups.map((g) => (
+                    <tr key={g.id}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">
+                          {g.name}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {g.dn}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${g.role === 'admin' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
+                          g.role === 'auditor' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                            'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                          }`}>
+                          {g.role}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${g.source === 'active_directory'
+                          ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                          : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                          }`}>
+                          {g.source === 'active_directory' ? 'Active Directory' : 'Local'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                        {g.description}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button
+                          onClick={() => {
+                            setGroupToDelete(g)
+                            setShowDeleteModal(true)
+                          }}
+                          className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Edit Role Modal */}
@@ -278,14 +440,14 @@ export default function UsersManagementPage() {
       )}
 
       {/* Delete Confirmation Modal */}
-      {showDeleteModal && userToDelete && (
+      {showDeleteModal && (userToDelete || groupToDelete) && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
-              Delete User
+              Delete {userToDelete ? 'User' : 'Group'}
             </h2>
             <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Are you sure you want to delete <strong>{userToDelete.email}</strong>? This action cannot be undone.
+              Are you sure you want to delete <strong>{userToDelete ? userToDelete.email : groupToDelete?.name}</strong>? This action cannot be undone.
             </p>
             <div className="flex justify-end space-x-3">
               <button
@@ -295,10 +457,10 @@ export default function UsersManagementPage() {
                 Cancel
               </button>
               <button
-                onClick={handleDeleteUser}
+                onClick={userToDelete ? handleDeleteUser : handleDeleteGroup}
                 className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg"
               >
-                Delete User
+                Delete {userToDelete ? 'User' : 'Group'}
               </button>
             </div>
           </div>

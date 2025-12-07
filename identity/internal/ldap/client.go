@@ -143,6 +143,23 @@ func (c *Client) SearchComputers(filter string) ([]*ldap.Entry, error) {
 	return sr.Entries, nil
 }
 
+func (c *Client) SearchGroups(filter string) ([]*ldap.Entry, error) {
+	searchRequest := ldap.NewSearchRequest(
+		c.BaseDN,
+		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
+		filter,
+		[]string{"name", "description", "member", "distinguishedName"},
+		nil,
+	)
+
+	sr, err := c.Conn.Search(searchRequest)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search groups: %v", err)
+	}
+
+	return sr.Entries, nil
+}
+
 func (c *Client) Authenticate(username, password string) (*ldap.Entry, error) {
 	// 1. Bind as read-only user (already done in Connect, but we might need a fresh connection or re-bind)
 	// Ideally, we should use a separate connection for the user bind to avoid messing up the main connection

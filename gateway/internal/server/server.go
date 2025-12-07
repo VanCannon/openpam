@@ -29,6 +29,7 @@ type Server struct {
 	router            *http.ServeMux
 	authHandler       *handlers.AuthHandler
 	userHandler       *handlers.UserHandler
+	groupHandler      *handlers.GroupHandler
 	targetHandler     *handlers.TargetHandler
 	connectionHandler *handlers.ConnectionHandler
 	scheduleHandler   *handlers.ScheduleHandler
@@ -58,6 +59,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(db)
+	groupRepo := repository.NewGroupRepository(db)
 	zoneRepo := repository.NewZoneRepository(db)
 	targetRepo := repository.NewTargetRepository(db)
 	credRepo := repository.NewCredentialRepository(db)
@@ -94,6 +96,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		sessionStore,
 		stateStore,
 		userRepo,
+		groupRepo,
 		systemAuditRepo,
 		log,
 		cfg.DevMode,
@@ -102,6 +105,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 	)
 
 	userHandler := handlers.NewUserHandler(userRepo, log)
+	groupHandler := handlers.NewGroupHandler(groupRepo, log)
 
 	targetHandler := handlers.NewTargetHandler(targetRepo, log)
 	zoneHandler := handlers.NewZoneHandler(zoneRepo, log)
@@ -130,6 +134,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		router:            http.NewServeMux(),
 		authHandler:       authHandler,
 		userHandler:       userHandler,
+		groupHandler:      groupHandler,
 		targetHandler:     targetHandler,
 		connectionHandler: connectionHandler,
 		scheduleHandler:   scheduleHandler,
@@ -214,6 +219,10 @@ func (s *Server) setupRoutes() {
 	s.router.Handle("/api/v1/users/{id}/role", s.requireRole(models.RoleAdmin, s.userHandler.HandleUpdateRole()))
 	s.router.Handle("/api/v1/users/{id}/enabled", s.requireRole(models.RoleAdmin, s.userHandler.HandleUpdateEnabled()))
 	s.router.Handle("/api/v1/users/{id}", s.requireRole(models.RoleAdmin, s.userHandler.HandleDelete()))
+
+	// Group management routes (admin only)
+	s.router.Handle("/api/v1/groups", s.requireRole(models.RoleAdmin, s.groupHandler.HandleList()))
+	s.router.Handle("/api/v1/groups/{id}", s.requireRole(models.RoleAdmin, s.groupHandler.HandleDelete()))
 
 	s.router.Handle("/api/v1/targets", s.requireAuth(s.targetHandler.HandleTargets()))
 

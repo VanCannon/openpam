@@ -22,6 +22,7 @@ type AuthHandler struct {
 	sessionStore    auth.SessionStore
 	stateStore      auth.StateStore
 	userRepo        *repository.UserRepository
+	groupRepo       *repository.GroupRepository
 	systemAuditRepo *repository.SystemAuditLogRepository
 	logger          *logger.Logger
 	devMode         bool
@@ -36,6 +37,7 @@ func NewAuthHandler(
 	sessionStore auth.SessionStore,
 	stateStore auth.StateStore,
 	userRepo *repository.UserRepository,
+	groupRepo *repository.GroupRepository,
 	systemAuditRepo *repository.SystemAuditLogRepository,
 	log *logger.Logger,
 	devMode bool,
@@ -48,6 +50,7 @@ func NewAuthHandler(
 		sessionStore:    sessionStore,
 		stateStore:      stateStore,
 		userRepo:        userRepo,
+		groupRepo:       groupRepo,
 		systemAuditRepo: systemAuditRepo,
 		logger:          log,
 		devMode:         devMode,
@@ -603,6 +606,7 @@ func (h *AuthHandler) HandleDirectLogin() http.HandlerFunc {
 				EntraID     string `json:"entra_id"`
 				Email       string `json:"email"`
 				DisplayName string `json:"display_name"`
+				Groups      string `json:"groups"` // JSON array of DNs
 			} `json:"user"`
 		}
 
@@ -625,12 +629,50 @@ func (h *AuthHandler) HandleDirectLogin() http.HandlerFunc {
 		// Get user from database (must exist)
 		user, err := h.userRepo.GetByEntraID(ctx, authResp.User.EntraID)
 		if err != nil {
-			h.logger.Warn("User not found in database", map[string]interface{}{
-				"entra_id": authResp.User.EntraID,
-				"email":    authResp.User.Email,
-			})
-			http.Error(w, "User not authorized. Please contact an administrator.", http.StatusForbidden)
-			return
+			// User not found, check if they are member of any allowed groups
+			var groupDNs []string
+			if authResp.User.Groups != "" {
+				json.Unmarshal([]byte(authResp.User.Groups), &groupDNs)
+			}
+
+			var allowedGroup *models.Group
+			for _, dn := range groupDNs {
+				group, err := h.groupRepo.GetByDN(ctx, dn)
+				if err == nil && group != nil {
+					allowedGroup = group
+					break // Found a matching group
+				}
+			}
+
+			if allowedGroup != nil {
+				// Create JIT user
+				h.logger.Info("Creating JIT user from group membership", map[string]interface{}{
+					"entra_id": authResp.User.EntraID,
+					"group":    allowedGroup.Name,
+					"role":     allowedGroup.Role,
+				})
+
+				user, err = h.userRepo.GetOrCreate(ctx, authResp.User.EntraID, authResp.User.Email, authResp.User.DisplayName)
+				if err != nil {
+					h.logger.Error("Failed to create JIT user", map[string]interface{}{
+						"error": err.Error(),
+					})
+					http.Error(w, "Failed to create user", http.StatusInternalServerError)
+					return
+				}
+
+				// Update role and source
+				user.Role = allowedGroup.Role
+				user.Source = "active_directory"
+				h.userRepo.Update(ctx, user)
+			} else {
+				h.logger.Warn("User not found in database and no matching groups", map[string]interface{}{
+					"entra_id": authResp.User.EntraID,
+					"email":    authResp.User.Email,
+				})
+				http.Error(w, "User not authorized. Please contact an administrator.", http.StatusForbidden)
+				return
+			}
 		}
 
 		// Update last login

@@ -62,11 +62,11 @@ services:
     ports:
       - "8082:8082"
     environment:
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_USER=openpam
-      - POSTGRES_PASSWORD=openpam
-      - POSTGRES_DB=openpam
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=openpam
+      - DB_PASSWORD=openpam
+      - DB_NAME=openpam
     depends_on:
       orchestrator:
         condition: service_started

@@ -42,7 +42,7 @@ export default function CredentialsPage() {
       setTargets(response.targets || [])
       if (response.targets && response.targets.length > 0) {
         setSelectedTargetId(response.targets[0].id)
-        setFormData(prev => ({ ...prev, target_id: response.targets[0].id })) // Set initial target_id for form
+        setFormData(prev => ({ ...prev, target_id: response.targets?.[0]?.id || '' })) // Set initial target_id for form
         loadCredentials(response.targets[0].id)
       }
       setLoading(false)
