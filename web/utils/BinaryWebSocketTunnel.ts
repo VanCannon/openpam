@@ -80,9 +80,13 @@ export class BinaryWebSocketTunnel extends Guacamole.Tunnel {
     };
 
     disconnect(): void {
+        console.log('BinaryWebSocketTunnel: disconnect() called, socket state:', this.socket?.readyState)
         if (this.socket) {
+            console.log('BinaryWebSocketTunnel: Closing websocket...')
             this.socket.close();
             this.socket = null;
+        } else {
+            console.log('BinaryWebSocketTunnel: No socket to close')
         }
     }
 }

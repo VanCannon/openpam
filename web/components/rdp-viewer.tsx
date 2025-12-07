@@ -14,6 +14,7 @@ interface RdpViewerProps {
 export default function RdpViewer({ wsUrl, onClose }: RdpViewerProps) {
   const displayRef = useRef<HTMLDivElement>(null)
   const clientRef = useRef<any>(null)
+  const tunnelRef = useRef<any>(null)
   const isUnmounting = useRef(false)
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting')
   const [error, setError] = useState<string>('')
@@ -46,6 +47,7 @@ export default function RdpViewer({ wsUrl, onClose }: RdpViewerProps) {
 
         // Create WebSocket tunnel using our custom BinaryWebSocketTunnel
         tunnel = new BinaryWebSocketTunnel(cleanUrl)
+        tunnelRef.current = tunnel // Store direct reference before passing to Guacamole
 
         // Create Guacamole client
         client = new Guacamole.Client(tunnel)
@@ -178,6 +180,7 @@ export default function RdpViewer({ wsUrl, onClose }: RdpViewerProps) {
 
     // Cleanup
     return () => {
+      console.log('RdpViewer: Cleanup function running')
       isUnmounting.current = true
       clearTimeout(connectionTimeout)
 
@@ -191,10 +194,22 @@ export default function RdpViewer({ wsUrl, onClose }: RdpViewerProps) {
       }
 
       if (client) {
+        console.log('RdpViewer: Disconnecting Guacamole client')
         client.disconnect()
       }
-      if (tunnel) {
-        tunnel.disconnect()
+
+      // Use tunnelRef to get direct reference to BinaryWebSocketTunnel
+      // (bypasses any Guacamole wrapping)
+      if (tunnelRef.current && tunnelRef.current.socket) {
+        console.log('RdpViewer: Disconnecting tunnel via tunnelRef')
+        console.log('RdpViewer: Closing socket with code 1000 (normal closure), readyState:', tunnelRef.current.socket.readyState)
+
+        // Guacamole replaces the disconnect() method with an empty function,
+        // so we directly close the socket with code 1000 (normal closure)
+        tunnelRef.current.socket.close(1000, 'User closed connection')
+        tunnelRef.current.socket = null
+      } else {
+        console.log('RdpViewer: No tunnel or socket to disconnect')
       }
     }
   }, [wsUrl, onClose])

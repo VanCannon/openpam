@@ -237,6 +237,8 @@ func (p *Proxy) Handle(
 				} else {
 					p.logger.Info("guacd connection closed (EOF)")
 				}
+				// Close websocket to unblock the other goroutine
+				wsConn.Close()
 				return
 			}
 
@@ -270,6 +272,8 @@ func (p *Proxy) Handle(
 					p.logger.Error("ws write error", map[string]interface{}{"error": err.Error()})
 					errChan <- err
 				}
+				// Close websocket to unblock the other goroutine
+				wsConn.Close()
 				return
 			}
 
@@ -306,12 +310,14 @@ func (p *Proxy) Handle(
 		for {
 			_, message, err := wsConn.ReadMessage()
 			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					p.logger.Error("ws read error", map[string]interface{}{"error": err.Error()})
 					errChan <- err
 				} else {
 					p.logger.Info("WebSocket closed normally")
 				}
+				// Close guacd to unblock the other goroutine
+				guacdConn.Close()
 				return
 			}
 
@@ -331,6 +337,8 @@ func (p *Proxy) Handle(
 					// Respond to keep-alive
 					err = p.sendInstruction(&wsWriter{wsConn}, "nop")
 					if err != nil {
+						// Close guacd to unblock the other goroutine
+						guacdConn.Close()
 						return
 					}
 					continue
@@ -343,6 +351,8 @@ func (p *Proxy) Handle(
 						p.logger.Error("guacd write error", map[string]interface{}{"error": err.Error()})
 						errChan <- err
 					}
+					// Close guacd to unblock the other goroutine
+					guacdConn.Close()
 					return
 				}
 			}
