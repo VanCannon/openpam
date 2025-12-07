@@ -41,6 +41,8 @@ export default function IdentityPage() {
     const [loading, setLoading] = useState(false)
     const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle')
     const [lastSync, setLastSync] = useState<string | null>(null)
+    const [zones, setZones] = useState<{ id: string, name: string }[]>([])
+    const [importZone, setImportZone] = useState('')
     const [config, setConfig] = useState({
         host: '',
         port: 389,
@@ -55,6 +57,7 @@ export default function IdentityPage() {
     const [adComputers, setAdComputers] = useState<ADComputer[]>([])
     const [adGroups, setAdGroups] = useState<ADGroup[]>([])
     const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set())
+    const [selectedComputers, setSelectedComputers] = useState<Set<string>>(new Set())
     const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set())
     const [showImportModal, setShowImportModal] = useState(false)
     const [importRole, setImportRole] = useState('user')
@@ -72,7 +75,20 @@ export default function IdentityPage() {
             .catch(err => console.error('Failed to fetch config:', err))
 
         fetchADData()
+        fetchZones()
     }, [])
+
+    const fetchZones = () => {
+        fetch('/api/v1/zones')
+            .then(res => res.json())
+            .then(data => {
+                setZones(data.zones || [])
+                if (data.zones && data.zones.length > 0) {
+                    setImportZone(data.zones[0].id)
+                }
+            })
+            .catch(err => console.error('Failed to fetch zones:', err))
+    }
 
     const fetchADData = () => {
         fetch('/api/v1/ad-users')
@@ -148,6 +164,16 @@ export default function IdentityPage() {
         setSelectedGroups(newSelected)
     }
 
+    const handleSelectComputer = (id: string) => {
+        const newSelected = new Set(selectedComputers)
+        if (newSelected.has(id)) {
+            newSelected.delete(id)
+        } else {
+            newSelected.add(id)
+        }
+        setSelectedComputers(newSelected)
+    }
+
     const handleSelectAll = () => {
         if (activeTab === 'users') {
             if (selectedUsers.size === adUsers.length) {
@@ -160,6 +186,12 @@ export default function IdentityPage() {
                 setSelectedGroups(new Set())
             } else {
                 setSelectedGroups(new Set(adGroups.map(g => g.id)))
+            }
+        } else if (activeTab === 'computers') {
+            if (selectedComputers.size === adComputers.length) {
+                setSelectedComputers(new Set())
+            } else {
+                setSelectedComputers(new Set(adComputers.map(c => c.id)))
             }
         }
     }
@@ -199,6 +231,24 @@ export default function IdentityPage() {
                 }
                 alert('Groups imported successfully')
                 setSelectedGroups(new Set())
+            } else if (activeTab === 'computers') {
+                for (const computerId of Array.from(selectedComputers)) {
+                    const res = await fetch('/api/v1/computers/import', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ad_computer_id: computerId,
+                            zone_id: importZone,
+                            protocol: 'rdp',
+                            port: 3389
+                        })
+                    })
+                    if (!res.ok) {
+                        throw new Error(`Failed to import computer ${computerId}: ${res.statusText}`)
+                    }
+                }
+                alert('Devices imported successfully')
+                setSelectedComputers(new Set())
             }
             setShowImportModal(false)
             // Optionally refresh users list if we were displaying it here, but we aren't.
@@ -408,7 +458,7 @@ export default function IdentityPage() {
                                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                                 } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
                         >
-                            AD Computers ({adComputers.length})
+                            AD Devices ({adComputers.length})
                         </button>
                         <button
                             onClick={() => setActiveTab('groups')}
@@ -439,6 +489,17 @@ export default function IdentityPage() {
                                 variant="default"
                             >
                                 Add to OpenPAM ({selectedGroups.size})
+                            </Button>
+                        </div>
+                    )}
+                    {activeTab === 'computers' && (
+                        <div className="pb-2">
+                            <Button
+                                onClick={() => setShowImportModal(true)}
+                                disabled={selectedComputers.size === 0}
+                                variant="default"
+                            >
+                                Add to OpenPAM ({selectedComputers.size})
                             </Button>
                         </div>
                     )}
@@ -514,6 +575,14 @@ export default function IdentityPage() {
                             <table className="min-w-full divide-y divide-gray-200">
                                 <thead className="bg-gray-50">
                                     <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            <input
+                                                type="checkbox"
+                                                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                                checked={adComputers.length > 0 && selectedComputers.size === adComputers.length}
+                                                onChange={handleSelectAll}
+                                            />
+                                        </th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">DNS Hostname</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">OS</th>
@@ -524,6 +593,14 @@ export default function IdentityPage() {
                                 <tbody className="bg-white divide-y divide-gray-200">
                                     {adComputers.map((computer) => (
                                         <tr key={computer.id}>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <input
+                                                    type="checkbox"
+                                                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                                    checked={selectedComputers.has(computer.id)}
+                                                    onChange={() => handleSelectComputer(computer.id)}
+                                                />
+                                            </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{computer.name}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{computer.dns_host_name}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{computer.operating_system}</td>
@@ -533,7 +610,7 @@ export default function IdentityPage() {
                                     ))}
                                     {adComputers.length === 0 && (
                                         <tr>
-                                            <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">No AD computers found. Run a sync to populate.</td>
+                                            <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">No AD devices found. Run a sync to populate.</td>
                                         </tr>
                                     )}
                                 </tbody>
@@ -596,43 +673,71 @@ export default function IdentityPage() {
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                     <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
                         <h2 className="text-xl font-bold text-gray-900 mb-4">
-                            {activeTab === 'users' ? 'Add Users to OpenPAM' : 'Add Groups to OpenPAM'}
+                            {activeTab === 'users' ? 'Add Users to OpenPAM' :
+                                activeTab === 'groups' ? 'Add Groups to OpenPAM' :
+                                    'Add Devices to OpenPAM'}
                         </h2>
                         <p className="text-gray-600 mb-6">
-                            Select a role for the {activeTab === 'users' ? selectedUsers.size : selectedGroups.size} selected {activeTab === 'users' ? (selectedUsers.size !== 1 ? 'users' : 'user') : (selectedGroups.size !== 1 ? 'groups' : 'group')}.
+                            {activeTab === 'computers'
+                                ? `Select a zone for the ${selectedComputers.size} selected ${selectedComputers.size !== 1 ? 'devices' : 'device'}.`
+                                : `Select a role for the ${activeTab === 'users' ? selectedUsers.size : selectedGroups.size} selected ${activeTab === 'users' ? (selectedUsers.size !== 1 ? 'users' : 'user') : (selectedGroups.size !== 1 ? 'groups' : 'group')}.`
+                            }
                         </p>
 
                         <div className="space-y-3 mb-6">
-                            {['admin', 'user', 'auditor'].map((role) => (
-                                <div key={role} className="flex items-center">
-                                    <input
-                                        type="radio"
-                                        id={role}
-                                        name="role"
-                                        value={role}
-                                        checked={importRole === role}
-                                        onChange={(e) => setImportRole(e.target.value)}
-                                        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
-                                    />
-                                    <label htmlFor={role} className="ml-3 block text-sm font-medium text-gray-700 capitalize">
-                                        {role}
-                                    </label>
+                            {activeTab === 'computers' ? (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Zone</label>
+                                    {zones.length > 0 ? (
+                                        <select
+                                            value={importZone}
+                                            onChange={(e) => setImportZone(e.target.value)}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                        >
+                                            {zones.map((zone) => (
+                                                <option key={zone.id} value={zone.id}>{zone.name}</option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <div className="text-sm text-red-600 bg-red-50 p-3 rounded-md border border-red-200">
+                                            No zones found. You must <a href="/admin/zones" className="underline font-medium hover:text-red-800">create a zone</a> before importing devices.
+                                        </div>
+                                    )}
                                 </div>
-                            ))}
-                            <div className="flex items-center">
-                                <input
-                                    type="radio"
-                                    id="managed"
-                                    name="role"
-                                    value="managed"
-                                    checked={importRole === 'managed'}
-                                    onChange={(e) => setImportRole(e.target.value)}
-                                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
-                                />
-                                <label htmlFor="managed" className="ml-3 block text-sm font-medium text-gray-700">
-                                    Managed Account (No Login)
-                                </label>
-                            </div>
+                            ) : (
+                                <>
+                                    {['admin', 'user', 'auditor'].map((role) => (
+                                        <div key={role} className="flex items-center">
+                                            <input
+                                                type="radio"
+                                                id={role}
+                                                name="role"
+                                                value={role}
+                                                checked={importRole === role}
+                                                onChange={(e) => setImportRole(e.target.value)}
+                                                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                                            />
+                                            <label htmlFor={role} className="ml-3 block text-sm font-medium text-gray-700 capitalize">
+                                                {role}
+                                            </label>
+                                        </div>
+                                    ))}
+                                    <div className="flex items-center">
+                                        <input
+                                            type="radio"
+                                            id="managed"
+                                            name="role"
+                                            value="managed"
+                                            checked={importRole === 'managed'}
+                                            onChange={(e) => setImportRole(e.target.value)}
+                                            className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                                        />
+                                        <label htmlFor="managed" className="ml-3 block text-sm font-medium text-gray-700">
+                                            Managed Account (No Login)
+                                        </label>
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         <div className="flex justify-end space-x-3">
@@ -645,7 +750,7 @@ export default function IdentityPage() {
                             </Button>
                             <Button
                                 onClick={handleImport}
-                                disabled={importing}
+                                disabled={importing || (activeTab === 'computers' && zones.length === 0)}
                             >
                                 {importing ? 'Importing...' : 'Confirm Import'}
                             </Button>

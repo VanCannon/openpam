@@ -57,6 +57,10 @@ class ApiClient {
         throw new Error(error || `HTTP ${response.status}`)
       }
 
+      if (response.status === 204) {
+        return null as unknown as T
+      }
+
       return response.json()
     } catch (error) {
       // Don't log 401 errors as they are often expected (e.g. checkAuth)

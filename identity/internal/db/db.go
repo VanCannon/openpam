@@ -107,6 +107,19 @@ type Group struct {
 	CreatedAt   string `json:"created_at"`
 }
 
+type Target struct {
+	ID          string `json:"id"`
+	ZoneID      string `json:"zone_id"`
+	Name        string `json:"name"`
+	Hostname    string `json:"hostname"`
+	Protocol    string `json:"protocol"`
+	Port        int    `json:"port"`
+	Description string `json:"description"`
+	Enabled     bool   `json:"enabled"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
 func createTables() error {
 	query := `
 	CREATE TABLE IF NOT EXISTS ad_config (
@@ -591,4 +604,32 @@ func GetGroups() ([]Group, error) {
 func DeleteGroup(id string) error {
 	_, err := DB.Exec("DELETE FROM groups WHERE id = $1", id)
 	return err
+}
+
+func SaveTargets(targets []Target) error {
+	stmt, err := DB.Prepare(`
+		INSERT INTO targets (id, zone_id, name, hostname, protocol, port, description, enabled, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT (id) DO UPDATE SET
+		zone_id = EXCLUDED.zone_id,
+		name = EXCLUDED.name,
+		hostname = EXCLUDED.hostname,
+		protocol = EXCLUDED.protocol,
+		port = EXCLUDED.port,
+		description = EXCLUDED.description,
+		enabled = EXCLUDED.enabled,
+		updated_at = CURRENT_TIMESTAMP
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, t := range targets {
+		_, err := stmt.Exec(t.ID, t.ZoneID, t.Name, t.Hostname, t.Protocol, t.Port, t.Description, t.Enabled)
+		if err != nil {
+			log.Printf("Failed to save target %s: %v", t.Name, err)
+		}
+	}
+	return nil
 }

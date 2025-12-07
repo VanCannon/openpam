@@ -43,6 +43,10 @@ const nextConfig = {
         destination: 'http://localhost:8082/api/v1/computers',
       },
       {
+        source: '/api/v1/computers/:path*',
+        destination: 'http://localhost:8082/api/v1/computers/:path*',
+      },
+      {
         source: '/api/v1/ad-users',
         destination: 'http://localhost:8082/api/v1/ad-users',
       },
@@ -70,6 +74,46 @@ const nextConfig = {
       {
         source: '/api/v1/auth/:path*',
         destination: 'http://localhost:8080/api/v1/auth/:path*',
+      },
+      {
+        source: '/api/v1/zones',
+        destination: 'http://localhost:8080/api/v1/zones',
+      },
+      {
+        source: '/api/v1/zones/:path*',
+        destination: 'http://localhost:8080/api/v1/zones/:path*',
+      },
+      {
+        source: '/api/v1/targets',
+        destination: 'http://localhost:8080/api/v1/targets',
+      },
+      {
+        source: '/api/v1/targets/:path*',
+        destination: 'http://localhost:8080/api/v1/targets/:path*',
+      },
+      {
+        source: '/api/v1/credentials',
+        destination: 'http://localhost:8080/api/v1/credentials',
+      },
+      {
+        source: '/api/v1/credentials/:path*',
+        destination: 'http://localhost:8080/api/v1/credentials/:path*',
+      },
+      {
+        source: '/api/v1/audit-logs',
+        destination: 'http://localhost:8080/api/v1/audit-logs',
+      },
+      {
+        source: '/api/v1/audit-logs/:path*',
+        destination: 'http://localhost:8080/api/v1/audit-logs/:path*',
+      },
+      {
+        source: '/api/v1/system-audit-logs',
+        destination: 'http://localhost:8080/api/v1/system-audit-logs',
+      },
+      {
+        source: '/api/v1/system-audit-logs/:path*',
+        destination: 'http://localhost:8080/api/v1/system-audit-logs/:path*',
       },
     ]
   },

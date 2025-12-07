@@ -49,6 +49,7 @@ func RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/v1/ad-groups", GetADGroups).Methods("GET")
 	r.HandleFunc("/api/v1/users/import", ImportADUser).Methods("POST")
 	r.HandleFunc("/api/v1/groups/import", ImportADGroup).Methods("POST")
+	r.HandleFunc("/api/v1/computers/import", ImportADComputer).Methods("POST")
 	r.HandleFunc("/api/v1/managed-accounts", GetManagedAccounts).Methods("GET")
 	r.HandleFunc("/api/v1/identity/auth", VerifyCredentials).Methods("POST")
 }
@@ -493,6 +494,69 @@ func ImportADGroup(w http.ResponseWriter, r *http.Request) {
 	if err := db.SaveGroups([]db.Group{group}); err != nil {
 		log.Printf("Failed to import AD group: %v", err)
 		http.Error(w, "Failed to import group", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+func ImportADComputer(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ADComputerID string `json:"ad_computer_id"`
+		ZoneID       string `json:"zone_id"`
+		Protocol     string `json:"protocol"`
+		Port         int    `json:"port"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Defaults
+	if req.Protocol == "" {
+		req.Protocol = "rdp"
+	}
+	if req.Port == 0 {
+		req.Port = 3389
+	}
+
+	// Get AD computer details
+	adComputers, err := db.GetADComputers() // TODO: Optimize
+	if err != nil {
+		http.Error(w, "Failed to fetch AD computers", http.StatusInternalServerError)
+		return
+	}
+
+	var targetComputer *db.ADComputer
+	for _, c := range adComputers {
+		if c.ID == req.ADComputerID {
+			targetComputer = &c
+			break
+		}
+	}
+
+	if targetComputer == nil {
+		log.Printf("AD computer not found for ID: %s", req.ADComputerID)
+		http.Error(w, "AD computer not found", http.StatusNotFound)
+		return
+	}
+
+	// Save to targets table
+	target := db.Target{
+		ID:          uuid.New().String(),
+		ZoneID:      req.ZoneID,
+		Name:        targetComputer.Name,
+		Hostname:    targetComputer.DNSHostName,
+		Protocol:    req.Protocol,
+		Port:        req.Port,
+		Description: fmt.Sprintf("Imported from AD: %s", targetComputer.DN),
+		Enabled:     true,
+	}
+
+	if err := db.SaveTargets([]db.Target{target}); err != nil {
+		log.Printf("Failed to import AD computer: %v", err)
+		http.Error(w, "Failed to import computer", http.StatusInternalServerError)
 		return
 	}
 
