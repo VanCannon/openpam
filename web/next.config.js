@@ -11,12 +11,20 @@ const nextConfig = {
   async rewrites() {
     return [
       {
+        source: '/api/v1/users/import',
+        destination: 'http://localhost:8082/api/v1/users/import',
+      },
+      {
         source: '/api/v1/identity/:path*',
         destination: 'http://localhost:8082/api/v1/identity/:path*',
       },
       {
         source: '/api/v1/users',
-        destination: 'http://localhost:8082/api/v1/users',
+        destination: 'http://localhost:8080/api/v1/users',
+      },
+      {
+        source: '/api/v1/users/:path*',
+        destination: 'http://localhost:8080/api/v1/users/:path*',
       },
       {
         source: '/api/v1/computers',
@@ -29,10 +37,6 @@ const nextConfig = {
       {
         source: '/api/v1/ad-computers',
         destination: 'http://localhost:8082/api/v1/ad-computers',
-      },
-      {
-        source: '/api/v1/users/import',
-        destination: 'http://localhost:8082/api/v1/users/import',
       },
       {
         source: '/api/v1/managed-accounts',

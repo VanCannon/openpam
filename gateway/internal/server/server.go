@@ -28,6 +28,7 @@ type Server struct {
 	httpServer        *http.Server
 	router            *http.ServeMux
 	authHandler       *handlers.AuthHandler
+	userHandler       *handlers.UserHandler
 	targetHandler     *handlers.TargetHandler
 	connectionHandler *handlers.ConnectionHandler
 	scheduleHandler   *handlers.ScheduleHandler
@@ -100,6 +101,8 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		cfg.Identity.URL,
 	)
 
+	userHandler := handlers.NewUserHandler(userRepo, log)
+
 	targetHandler := handlers.NewTargetHandler(targetRepo, log)
 	zoneHandler := handlers.NewZoneHandler(zoneRepo, log)
 	credHandler := handlers.NewCredentialHandler(credRepo, log)
@@ -126,6 +129,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		logger:            log,
 		router:            http.NewServeMux(),
 		authHandler:       authHandler,
+		userHandler:       userHandler,
 		targetHandler:     targetHandler,
 		connectionHandler: connectionHandler,
 		scheduleHandler:   scheduleHandler,
@@ -204,6 +208,13 @@ func (s *Server) setupRoutes() {
 
 	// Protected routes (auth required)
 	s.router.Handle("/api/v1/auth/me", s.requireAuth(s.authHandler.HandleMe()))
+
+	// User management routes (admin only)
+	s.router.Handle("/api/v1/users", s.requireRole(models.RoleAdmin, s.userHandler.HandleList()))
+	s.router.Handle("/api/v1/users/{id}/role", s.requireRole(models.RoleAdmin, s.userHandler.HandleUpdateRole()))
+	s.router.Handle("/api/v1/users/{id}/enabled", s.requireRole(models.RoleAdmin, s.userHandler.HandleUpdateEnabled()))
+	s.router.Handle("/api/v1/users/{id}", s.requireRole(models.RoleAdmin, s.userHandler.HandleDelete()))
+
 	s.router.Handle("/api/v1/targets", s.requireAuth(s.targetHandler.HandleTargets()))
 
 	// Schedule routes

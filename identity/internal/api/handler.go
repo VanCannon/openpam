@@ -327,6 +327,7 @@ func ImportADUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if targetUser == nil {
+		log.Printf("AD user not found for ID: %s", req.ADUserID)
 		http.Error(w, "AD user not found", http.StatusNotFound)
 		return
 	}

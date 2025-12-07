@@ -83,3 +83,6 @@ consul_data/
 # Database migrations state
 *.sql.state
 
+
+# Binaries
+gateway/gateway

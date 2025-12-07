@@ -23,6 +23,8 @@ export default function UsersManagementPage() {
   const [loadingUsers, setLoadingUsers] = useState(true)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [userToDelete, setUserToDelete] = useState<User | null>(null)
 
   useEffect(() => {
     if (!loading && (!user || user.role !== 'admin')) {
@@ -87,6 +89,25 @@ export default function UsersManagementPage() {
       }
     } catch (error) {
       console.error('Failed to update user status:', error)
+    }
+  }
+
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return
+
+    try {
+      const response = await fetch(`/api/v1/users/${userToDelete.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      })
+
+      if (response.ok) {
+        fetchUsers()
+        setShowDeleteModal(false)
+        setUserToDelete(null)
+      }
+    } catch (error) {
+      console.error('Failed to delete user:', error)
     }
   }
 
@@ -193,9 +214,18 @@ export default function UsersManagementPage() {
                           setSelectedUser(u)
                           setShowEditModal(true)
                         }}
-                        className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300"
+                        className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 mr-4"
                       >
                         Edit Role
+                      </button>
+                      <button
+                        onClick={() => {
+                          setUserToDelete(u)
+                          setShowDeleteModal(true)
+                        }}
+                        className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                      >
+                        Delete
                       </button>
                     </td>
                   </tr>
@@ -241,6 +271,34 @@ export default function UsersManagementPage() {
                 className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && userToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+              Delete User
+            </h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              Are you sure you want to delete <strong>{userToDelete.email}</strong>? This action cannot be undone.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteUser}
+                className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg"
+              >
+                Delete User
               </button>
             </div>
           </div>

@@ -169,15 +169,24 @@ func (r *UserRepository) UpdateLastLogin(ctx context.Context, userID uuid.UUID) 
 	return nil
 }
 
-// Delete deletes a user (soft delete by disabling)
+// Delete deletes a user permanently
 func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	query := `
-		UPDATE users
-		SET enabled = false, updated_at = $1
-		WHERE id = $2
-	`
+	// Start a transaction
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
 
-	result, err := r.db.ExecContext(ctx, query, time.Now(), id)
+	// Delete associated audit logs first (ON DELETE RESTRICT)
+	_, err = tx.ExecContext(ctx, "DELETE FROM audit_logs WHERE user_id = $1", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete user audit logs: %w", err)
+	}
+
+	// Delete the user
+	query := `DELETE FROM users WHERE id = $1`
+	result, err := tx.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
@@ -189,6 +198,11 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 	if rows == 0 {
 		return fmt.Errorf("user not found")
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil

@@ -133,7 +133,7 @@ export default function IdentityPage() {
         setImporting(true)
         try {
             for (const userId of Array.from(selectedUsers)) {
-                await fetch('/api/v1/users/import', {
+                const res = await fetch('/api/v1/users/import', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -141,6 +141,9 @@ export default function IdentityPage() {
                         role: importRole
                     })
                 })
+                if (!res.ok) {
+                    throw new Error(`Failed to import user ${userId}: ${res.statusText}`)
+                }
             }
             alert('Users imported successfully')
             setShowImportModal(false)

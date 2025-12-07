@@ -78,7 +78,7 @@ Components:
 
 ### Microservices
 
-The orchestrator coordinates six specialized services:
+The orchestrator coordinates seven specialized services:
 
 1. **Scheduling Service** (Port 8081)
    - Time-based access control
@@ -118,6 +118,16 @@ The orchestrator coordinates six specialized services:
    - Usage tracking and limits
    - Concurrent session enforcement
    - Expiration notifications
+
+7. **Audit & Compliance Service** (Port 8087)
+   - Advanced audit log search and filtering
+   - Report generation and scheduling
+   - Compliance report templates (SOX, PCI-DSS, HIPAA, ISO 27001)
+   - Data export (CSV, PDF, Excel, JSON)
+   - Long-term archival and retention policy automation
+   - User behavior analytics
+   - Anomaly detection
+   - Compliance dashboards
 
 3. Extended Architecture Diagram
 
@@ -335,6 +345,7 @@ Communications Service:
   - `openpam.user.*` - User management events
   - `openpam.license.*` - License events
   - `openpam.automation.*` - Automation events
+  - `openpam.audit.*` - Audit and compliance events
 
 ## Service-Specific APIs
 
@@ -377,6 +388,21 @@ Communications Service:
 - `GET /api/v1/license/features` - List enabled features
 - `GET /api/v1/license/usage` - Get current usage stats
 - `GET /api/v1/license/limits` - Get license limits
+
+**Audit & Compliance Service (Port 8087):**
+- `POST /api/v1/audit/search` - Advanced audit log search with filters
+- `GET /api/v1/audit/sessions/{id}` - Get session details
+- `GET /api/v1/audit/sessions/{id}/recording` - Download session recording
+- `POST /api/v1/audit/export` - Export audit data (CSV, PDF, Excel, JSON)
+- `POST /api/v1/reports/generate` - Generate compliance report
+- `POST /api/v1/reports/schedule` - Schedule recurring report
+- `GET /api/v1/reports/{id}` - Get generated report
+- `GET /api/v1/reports/templates` - List compliance report templates
+- `GET /api/v1/analytics/user-behavior` - User behavior analytics
+- `GET /api/v1/analytics/anomalies` - Detected anomalies
+- `GET /api/v1/analytics/dashboard` - Compliance dashboard metrics
+- `POST /api/v1/retention/policies` - Configure retention policy
+- `GET /api/v1/retention/policies` - List retention policies
 
 6. Database Schema
 
@@ -597,6 +623,274 @@ CREATE INDEX idx_license_info_status ON license_info(status);
 CREATE INDEX idx_license_info_expiration ON license_info(expiration_date);
 ```
 
+## 6a. Audit & Compliance Service - Detailed Specification
+
+The Audit & Compliance Service is a critical component for enterprise PAM deployments, providing comprehensive audit trail management, compliance reporting, and analytics capabilities required by security frameworks like SOX, PCI-DSS, HIPAA, and ISO 27001.
+
+### Architecture Components
+
+**1. Search Engine**
+- Multi-field query builder supporting complex filters:
+  - User ID, email, or name
+  - Target hostname or ID
+  - Date/time ranges with timezone support
+  - Session status (active, completed, failed, terminated)
+  - Protocol type (SSH, RDP)
+  - Duration filters (min/max)
+  - Data transfer filters (bytes sent/received)
+  - Source IP address or range
+- Full-text search across session recordings and command logs
+- Saved search queries with user-defined names
+- Search result pagination and sorting
+- Real-time search suggestions
+
+**2. Report Generator**
+- Template-based reporting engine
+- Built-in compliance templates:
+  - **SOX (Sarbanes-Oxley)**: Privileged access to financial systems
+  - **PCI-DSS**: Access to cardholder data environments
+  - **HIPAA**: Access to protected health information systems
+  - **ISO 27001**: Information security management
+  - **NIST 800-53**: Federal security controls
+- Custom report builder with drag-and-drop fields
+- Scheduled reports (daily, weekly, monthly, quarterly)
+- Email delivery with attachments
+- Report versioning and history
+
+**3. Export Functionality**
+- Multiple export formats:
+  - **CSV**: For spreadsheet analysis
+  - **PDF**: For formal documentation
+  - **Excel (XLSX)**: For advanced filtering and pivot tables
+  - **JSON**: For programmatic access and integration
+- Batch export for bulk data extraction
+- Filtered exports based on search criteria
+- Streaming exports for large datasets
+- Encrypted exports for sensitive data
+
+**4. Analytics Engine**
+- **User Behavior Analytics (UBA)**:
+  - Session frequency and duration patterns
+  - Peak usage times and anomalies
+  - Most accessed targets per user
+  - Failed login attempt tracking
+  - Unusual access patterns detection
+- **Target Access Analytics**:
+  - Most accessed systems
+  - Access frequency trends
+  - Idle target identification
+- **Security Metrics**:
+  - Failed session attempts
+  - After-hours access tracking
+  - Concurrent session limits
+  - Geographic anomalies
+
+**5. Anomaly Detection**
+- Machine learning-based anomaly detection:
+  - First-time target access
+  - Access from new IP addresses
+  - Unusual time-of-day access
+  - Unusual session duration
+  - High data transfer volumes
+  - Rapid successive connections
+- Configurable alerting thresholds
+- Integration with Communications Service for notifications
+
+**6. Retention & Archival Manager**
+- Configurable retention policies:
+  - Active session data retention (default: 90 days)
+  - Archived session data (default: 7 years)
+  - Recording file retention
+  - Automatic deletion after expiration
+- Long-term storage integration:
+  - Amazon S3 / Glacier
+  - Azure Blob Storage (Cool/Archive tier)
+  - Google Cloud Storage (Nearline/Coldline)
+  - On-premises object storage (MinIO)
+- Compliance-driven retention templates
+- Legal hold capability for investigations
+
+**7. Compliance Dashboards**
+- Real-time compliance status visualization
+- Key metrics:
+  - Total privileged sessions (last 30/60/90 days)
+  - Average session duration
+  - Top 10 users by session count
+  - Top 10 most accessed targets
+  - Failed access attempts
+  - Sessions requiring review
+- Executive summary views
+- Drill-down capabilities to detailed logs
+
+### Database Schema Extensions
+
+```sql
+-- Saved searches
+CREATE TABLE saved_searches (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id),
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    query_json JSONB NOT NULL, -- Stores the search criteria
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- Reports
+CREATE TABLE reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    template_type VARCHAR(100) NOT NULL, -- 'sox', 'pci', 'hipaa', 'iso27001', 'custom'
+    generated_by UUID NOT NULL REFERENCES users(id),
+    format VARCHAR(20) NOT NULL, -- 'pdf', 'csv', 'excel', 'json'
+    file_path VARCHAR(500),
+    file_size BIGINT,
+    start_date TIMESTAMP,
+    end_date TIMESTAMP,
+    filters_json JSONB, -- Stores the report filters
+    status VARCHAR(50) NOT NULL DEFAULT 'generating', -- 'generating', 'completed', 'failed'
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- Scheduled reports
+CREATE TABLE scheduled_reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    template_type VARCHAR(100) NOT NULL,
+    schedule_cron VARCHAR(100) NOT NULL, -- Cron expression
+    format VARCHAR(20) NOT NULL,
+    recipients TEXT[], -- Array of email addresses
+    filters_json JSONB,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    last_run TIMESTAMP,
+    next_run TIMESTAMP,
+    created_by UUID NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- Retention policies
+CREATE TABLE retention_policies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    active_retention_days INTEGER NOT NULL DEFAULT 90,
+    archive_retention_days INTEGER NOT NULL DEFAULT 2555, -- ~7 years
+    applies_to VARCHAR(50) NOT NULL, -- 'all', 'protocol', 'user', 'target'
+    filter_json JSONB, -- Stores criteria for selective retention
+    storage_backend VARCHAR(100), -- 's3', 'azure', 'gcs', 'minio', 'local'
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- Anomalies detected
+CREATE TABLE detected_anomalies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    audit_log_id UUID REFERENCES audit_logs(id),
+    user_id UUID REFERENCES users(id),
+    target_id UUID REFERENCES targets(id),
+    anomaly_type VARCHAR(100) NOT NULL, -- 'new_ip', 'unusual_time', 'first_access', etc.
+    severity VARCHAR(20) NOT NULL, -- 'low', 'medium', 'high', 'critical'
+    description TEXT,
+    metadata JSONB, -- Additional context about the anomaly
+    reviewed BOOLEAN NOT NULL DEFAULT false,
+    reviewed_by UUID REFERENCES users(id),
+    reviewed_at TIMESTAMP,
+    detected_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_saved_searches_user ON saved_searches(user_id);
+CREATE INDEX idx_reports_template ON reports(template_type);
+CREATE INDEX idx_reports_created ON reports(created_at);
+CREATE INDEX idx_scheduled_reports_next_run ON scheduled_reports(next_run) WHERE enabled = true;
+CREATE INDEX idx_retention_policies_enabled ON retention_policies(enabled);
+CREATE INDEX idx_anomalies_severity ON detected_anomalies(severity) WHERE NOT reviewed;
+CREATE INDEX idx_anomalies_user ON detected_anomalies(user_id);
+CREATE INDEX idx_anomalies_detected ON detected_anomalies(detected_at);
+```
+
+### Integration with Other Services
+
+**Event Subscriptions (NATS)**:
+- `openpam.session.*` - Capture all session events for analytics
+- `openpam.user.*` - Track user lifecycle for audit trail
+- `openpam.license.*` - Monitor license compliance
+
+**Event Publications**:
+- `openpam.audit.anomaly.detected` - Triggers alerts via Communications Service
+- `openpam.audit.report.generated` - Notifies users when reports are ready
+- `openpam.audit.retention.archived` - Confirms successful archival
+
+**Dependencies**:
+- PostgreSQL: Primary data storage
+- Object Storage (S3/Azure/GCS): Long-term archival
+- NATS: Event-driven triggers
+- Communications Service: Alert delivery
+- License Service: Feature availability checks
+
+### Configuration Example
+
+```yaml
+audit_compliance:
+  # Search configuration
+  search:
+    max_results: 10000
+    default_page_size: 50
+    enable_fuzzy_search: true
+
+  # Report generation
+  reports:
+    output_directory: /var/lib/openpam/reports
+    max_concurrent_jobs: 5
+    cleanup_after_days: 30
+
+  # Retention policies
+  retention:
+    default_active_days: 90
+    default_archive_days: 2555
+    storage_backend: s3
+    storage_config:
+      bucket: openpam-audit-archive
+      region: us-east-1
+      lifecycle_enabled: true
+
+  # Anomaly detection
+  anomaly_detection:
+    enabled: true
+    sensitivity: medium  # low, medium, high
+    alert_threshold: high  # Only alert on high/critical anomalies
+
+  # Analytics
+  analytics:
+    enable_ml: true
+    training_data_days: 90
+    update_models_cron: "0 2 * * *"  # 2 AM daily
+```
+
+### Compliance Report Templates
+
+**SOX Compliance Report**:
+- All privileged access to financial systems
+- User authentication methods
+- Session recordings for audit trail
+- Changes to privileged accounts
+- Failed access attempts
+
+**PCI-DSS Compliance Report**:
+- Access to cardholder data environment (CDE)
+- Administrative access to payment systems
+- Security control validation
+- Access control matrix
+- Quarterly access reviews
+
+**HIPAA Compliance Report**:
+- Access to ePHI (Electronic Protected Health Information)
+- User access logs with timestamps
+- Security incident tracking
+- Access termination verification
+- Business associate access tracking
+
 7. Security Principles
 
 Zero Trust: The Gateway never exposes the internal network directly. It only tunnels specific protocols after auth.
@@ -761,6 +1055,7 @@ This model ensures that the sensitive Gateway logic resides in a trusted network
 - Automation Service: 8084
 - Communications Service: 8085
 - License Service: 8086
+- Audit & Compliance Service: 8087
 - PostgreSQL: 5432
 - Redis: 6379
 - NATS: 4222

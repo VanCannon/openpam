@@ -164,14 +164,23 @@ func (h *AuthHandler) HandleCallback() http.HandlerFunc {
 			"user_id": userInfo.ID,
 		})
 
-		// Get or create user in database
-		user, err := h.userRepo.GetOrCreate(ctx, userInfo.ID, userInfo.Email, userInfo.DisplayName)
+		// Get user from database (must exist)
+		user, err := h.userRepo.GetByEntraID(ctx, userInfo.ID)
 		if err != nil {
-			h.logger.Error("Failed to get or create user", map[string]interface{}{
+			h.logger.Warn("User not found in database", map[string]interface{}{
+				"entra_id": userInfo.ID,
+				"email":    userInfo.Email,
+			})
+			http.Error(w, "User not authorized. Please contact an administrator.", http.StatusForbidden)
+			return
+		}
+
+		// Update last login
+		if err := h.userRepo.UpdateLastLogin(ctx, user.ID); err != nil {
+			h.logger.Error("Failed to update last login", map[string]interface{}{
 				"error": err.Error(),
 			})
-			http.Error(w, "Failed to create user", http.StatusInternalServerError)
-			return
+			// Continue anyway
 		}
 
 		// Check if user is enabled
@@ -613,16 +622,23 @@ func (h *AuthHandler) HandleDirectLogin() http.HandlerFunc {
 		// User is authenticated, proceed to create session
 		ctx := r.Context()
 
-		// Get or create user in database
-		// We use the AD SAMAccountName as the EntraID for now, or we could use a different field
-		// The Identity Service returns "entra_id" mapped from sAMAccountName
-		user, err := h.userRepo.GetOrCreate(ctx, authResp.User.EntraID, authResp.User.Email, authResp.User.DisplayName)
+		// Get user from database (must exist)
+		user, err := h.userRepo.GetByEntraID(ctx, authResp.User.EntraID)
 		if err != nil {
-			h.logger.Error("Failed to get or create user", map[string]interface{}{
+			h.logger.Warn("User not found in database", map[string]interface{}{
+				"entra_id": authResp.User.EntraID,
+				"email":    authResp.User.Email,
+			})
+			http.Error(w, "User not authorized. Please contact an administrator.", http.StatusForbidden)
+			return
+		}
+
+		// Update last login
+		if err := h.userRepo.UpdateLastLogin(ctx, user.ID); err != nil {
+			h.logger.Error("Failed to update last login", map[string]interface{}{
 				"error": err.Error(),
 			})
-			http.Error(w, "Failed to create user", http.StatusInternalServerError)
-			return
+			// Continue anyway
 		}
 
 		// Update source to active_directory if it's not already
