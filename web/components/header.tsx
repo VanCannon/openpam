@@ -45,6 +45,13 @@ export default function Header() {
                             My Schedules
                         </Link>
 
+                        <Link
+                            href="/my-sessions"
+                            className={`text-sm ${isActive('/my-sessions') ? 'text-gray-900 font-medium' : 'text-blue-600 hover:text-blue-800'}`}
+                        >
+                            My Sessions
+                        </Link>
+
                         {user.role === 'admin' && (
                             <>
                                 <Link

@@ -41,10 +41,7 @@ export interface AuditLog {
   id: string
   user_id: string
   target_id: string
-  credential_id?: {
-    UUID: string
-    Valid: boolean
-  }
+  credential_id?: string
   start_time: string
   end_time?: {
     Time: string

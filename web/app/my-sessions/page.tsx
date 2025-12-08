@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
-import { AuditLog, User, Target, Credential } from '@/types'
+import { AuditLog, Target, Credential } from '@/types'
 import Header from '@/components/header'
 import { api } from '@/lib/api'
 import type { Terminal as XTerm } from '@xterm/xterm'
@@ -11,7 +11,7 @@ import type { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import RdpPlayer from '@/components/rdp-player'
 
-export default function AuditorPage() {
+export default function MySessionsPage() {
     const { user, loading } = useAuth()
     const router = useRouter()
     const [sessions, setSessions] = useState<AuditLog[]>([])
@@ -27,25 +27,24 @@ export default function AuditorPage() {
     const fitAddonRef = useRef<FitAddon | null>(null)
 
     // Lookup data for human-friendly names
-    const [users, setUsers] = useState<Map<string, User>>(new Map())
     const [targets, setTargets] = useState<Map<string, Target>>(new Map())
     const [credentials, setCredentials] = useState<Map<string, Credential>>(new Map())
 
     useEffect(() => {
-        if (!loading && (!user || (user.role !== 'auditor' && user.role !== 'admin'))) {
-            router.push('/dashboard')
+        if (!loading && !user) {
+            router.push('/login')
         }
     }, [user, loading, router])
 
     // Load lookup data on mount
     useEffect(() => {
-        if (user && (user.role === 'auditor' || user.role === 'admin')) {
+        if (user) {
             fetchLookupData()
         }
     }, [user])
 
     useEffect(() => {
-        if (user && (user.role === 'auditor' || user.role === 'admin')) {
+        if (user) {
             fetchSessions()
             const interval = setInterval(fetchSessions, 5000) // Refresh every 5 seconds
             return () => clearInterval(interval)
@@ -54,18 +53,8 @@ export default function AuditorPage() {
 
     const fetchLookupData = async () => {
         try {
-            // Fetch users, targets in parallel
-            const [usersResp, targetsResp] = await Promise.all([
-                api.listUsers(),
-                api.listTargets({})
-            ])
-
-            // Build user lookup map
-            const userMap = new Map<string, User>()
-            if (usersResp.users) {
-                usersResp.users.forEach(u => userMap.set(u.id, u))
-            }
-            setUsers(userMap)
+            // Fetch targets
+            const targetsResp = await api.listTargets({})
 
             // Build target lookup map
             const targetMap = new Map<string, Target>()
@@ -106,6 +95,11 @@ export default function AuditorPage() {
                 if (filter === 'completed') {
                     fetchedSessions = fetchedSessions.filter((s: AuditLog) => s.session_status === 'completed')
                 }
+            }
+
+            // Filter to only show sessions for the current user
+            if (user) {
+                fetchedSessions = fetchedSessions.filter((s: AuditLog) => s.user_id === user.id)
             }
 
             setSessions(fetchedSessions)
@@ -307,7 +301,6 @@ export default function AuditorPage() {
             }
 
             // Write content in chunks
-            // Write content in chunks
             if (selectedSession?.protocol === 'rdp') {
                 setRecordingContent(content)
             } else {
@@ -339,11 +332,6 @@ export default function AuditorPage() {
     }
 
     // Helper functions to get human-friendly names
-    const getUserName = (userId: string): string => {
-        const u = users.get(userId)
-        return u ? u.display_name || u.email : userId
-    }
-
     const getTargetName = (targetId: string): string => {
         const t = targets.get(targetId)
         return t ? `${t.name} (${t.hostname})` : targetId
@@ -379,19 +367,17 @@ export default function AuditorPage() {
         if (!searchTerm) return true
 
         const searchLower = searchTerm.toLowerCase()
-        const userName = getUserName(session.user_id).toLowerCase()
         const targetName = getTargetName(session.target_id).toLowerCase()
         const credUsername = session.credential_id
             ? getCredentialUsername(session.credential_id).toLowerCase()
             : ''
 
-        return userName.includes(searchLower) ||
-               targetName.includes(searchLower) ||
+        return targetName.includes(searchLower) ||
                credUsername.includes(searchLower) ||
                session.id.toLowerCase().includes(searchLower)
     })
 
-    if (loading || (!user || (user.role !== 'auditor' && user.role !== 'admin'))) {
+    if (loading || !user) {
         return null
     }
 
@@ -403,8 +389,8 @@ export default function AuditorPage() {
                 <div className="mb-8">
                     <div className="flex justify-between items-center mb-4">
                         <div>
-                            <h1 className="text-3xl font-bold text-gray-900">Session Audit</h1>
-                            <p className="mt-2 text-gray-600">Monitor and review all sessions with live playback</p>
+                            <h1 className="text-3xl font-bold text-gray-900">My Sessions</h1>
+                            <p className="mt-2 text-gray-600">View and replay your session history</p>
                         </div>
                         <div className="flex space-x-2">
                             <button
@@ -441,7 +427,7 @@ export default function AuditorPage() {
                     <div className="relative">
                         <input
                             type="text"
-                            placeholder="Search by user, resource, or account..."
+                            placeholder="Search by resource or account..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -479,7 +465,6 @@ export default function AuditorPage() {
                                             ? Math.round((new Date(session.end_time.Time).getTime() - new Date(session.start_time).getTime()) / 1000 / 60)
                                             : null
                                         const isSelected = selectedSession?.id === session.id
-                                        const userName = getUserName(session.user_id)
                                         const targetName = getTargetName(session.target_id)
                                         const accountName = session.credential_id
                                             ? getCredentialUsername(session.credential_id)
@@ -500,13 +485,10 @@ export default function AuditorPage() {
                                                                 {session.protocol?.toUpperCase() || 'SSH'}
                                                             </span>
                                                         </div>
-                                                        <p className="text-sm font-semibold text-gray-900 truncate" title={userName}>
-                                                            User: {userName}
-                                                        </p>
-                                                        <p className="text-xs text-gray-600 truncate mt-1" title={accountName}>
+                                                        <p className="text-sm font-semibold text-gray-900 truncate" title={accountName}>
                                                             Account: {accountName}
                                                         </p>
-                                                        <p className="text-xs text-gray-600 truncate" title={targetName}>
+                                                        <p className="text-xs text-gray-600 truncate mt-1" title={targetName}>
                                                             Resource: {targetName}
                                                         </p>
                                                         <p className="text-xs text-gray-400 mt-2">
@@ -533,7 +515,7 @@ export default function AuditorPage() {
                         </div>
                     </div>
 
-                    {/* Terminal Viewer */}
+                    {/* Session Viewer */}
                     <div className="lg:col-span-2">
                         <div className="bg-white shadow-md rounded-lg overflow-hidden">
                             <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
@@ -541,7 +523,7 @@ export default function AuditorPage() {
                                     <h2 className="text-lg font-semibold text-gray-900">
                                         {selectedSession ? (
                                             <>
-                                                {selectedSession.session_status === 'active' ? 'Live Monitor' : 'Session Replay'}
+                                                {selectedSession.session_status === 'active' ? 'Live Session' : 'Session Replay'}
                                                 {selectedSession.session_status === 'active' && (
                                                     <span className="ml-3 inline-flex items-center gap-2 px-3 py-1 text-sm font-semibold text-white bg-red-600 rounded-full animate-pulse">
                                                         <span className="w-2 h-2 bg-white rounded-full"></span>

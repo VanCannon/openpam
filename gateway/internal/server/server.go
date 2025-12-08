@@ -214,8 +214,10 @@ func (s *Server) setupRoutes() {
 	// Protected routes (auth required)
 	s.router.Handle("/api/v1/auth/me", s.requireAuth(s.authHandler.HandleMe()))
 
-	// User management routes (admin only)
-	s.router.Handle("/api/v1/users", s.requireRole(models.RoleAdmin, s.userHandler.HandleList()))
+	// User management routes
+	// List users - accessible by admin and auditor (auditor needs it for session audit display)
+	s.router.Handle("/api/v1/users", s.requireAnyRole([]string{models.RoleAdmin, models.RoleAuditor}, s.userHandler.HandleList()))
+	// User modification routes (admin only)
 	s.router.Handle("/api/v1/users/{id}/role", s.requireRole(models.RoleAdmin, s.userHandler.HandleUpdateRole()))
 	s.router.Handle("/api/v1/users/{id}/enabled", s.requireRole(models.RoleAdmin, s.userHandler.HandleUpdateEnabled()))
 	s.router.Handle("/api/v1/users/{id}", s.requireRole(models.RoleAdmin, s.userHandler.HandleDelete()))
@@ -248,6 +250,13 @@ func (s *Server) requireAuth(handler http.HandlerFunc) http.Handler {
 func (s *Server) requireRole(role string, handler http.HandlerFunc) http.Handler {
 	return middleware.RequireAuth(s.tokenManager, s.logger)(
 		middleware.RequireRole(role, s.logger)(handler),
+	)
+}
+
+// requireAnyRole wraps a handler with authentication and allows any of the specified roles
+func (s *Server) requireAnyRole(roles []string, handler http.HandlerFunc) http.Handler {
+	return middleware.RequireAuth(s.tokenManager, s.logger)(
+		middleware.RequireAnyRole(roles, s.logger)(handler),
 	)
 }
 
