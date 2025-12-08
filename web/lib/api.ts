@@ -92,6 +92,15 @@ class ApiClient {
     return this.request<User>('/api/v1/auth/me')
   }
 
+  // Users
+  async listUsers(): Promise<ListResponse<User>> {
+    return this.request<ListResponse<User>>('/api/v1/users')
+  }
+
+  async getUser(id: string): Promise<User> {
+    return this.request<User>(`/api/v1/users/${id}`)
+  }
+
   // Zones
   async listZones(): Promise<ListResponse<Zone>> {
     return this.request<ListResponse<Zone>>('/api/v1/zones')

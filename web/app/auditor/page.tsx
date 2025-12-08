@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
-import { AuditLog } from '@/types'
+import { AuditLog, User, Target, Credential } from '@/types'
 import Header from '@/components/header'
 import { api } from '@/lib/api'
 import type { Terminal as XTerm } from '@xterm/xterm'
@@ -17,6 +17,7 @@ export default function AuditorPage() {
     const [sessions, setSessions] = useState<AuditLog[]>([])
     const [loadingSessions, setLoadingSessions] = useState(true)
     const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all')
+    const [searchTerm, setSearchTerm] = useState('')
     const [selectedSession, setSelectedSession] = useState<AuditLog | null>(null)
     const [loadingRecording, setLoadingRecording] = useState(false)
     const [recordingContent, setRecordingContent] = useState<string>('')
@@ -25,11 +26,23 @@ export default function AuditorPage() {
     const wsRef = useRef<WebSocket | null>(null)
     const fitAddonRef = useRef<FitAddon | null>(null)
 
+    // Lookup data for human-friendly names
+    const [users, setUsers] = useState<Map<string, User>>(new Map())
+    const [targets, setTargets] = useState<Map<string, Target>>(new Map())
+    const [credentials, setCredentials] = useState<Map<string, Credential>>(new Map())
+
     useEffect(() => {
         if (!loading && (!user || (user.role !== 'auditor' && user.role !== 'admin'))) {
             router.push('/dashboard')
         }
     }, [user, loading, router])
+
+    // Load lookup data on mount
+    useEffect(() => {
+        if (user && (user.role === 'auditor' || user.role === 'admin')) {
+            fetchLookupData()
+        }
+    }, [user])
 
     useEffect(() => {
         if (user && (user.role === 'auditor' || user.role === 'admin')) {
@@ -38,6 +51,45 @@ export default function AuditorPage() {
             return () => clearInterval(interval)
         }
     }, [user, filter])
+
+    const fetchLookupData = async () => {
+        try {
+            // Fetch users, targets in parallel
+            const [usersResp, targetsResp] = await Promise.all([
+                api.listUsers(),
+                api.listTargets({})
+            ])
+
+            // Build user lookup map
+            const userMap = new Map<string, User>()
+            if (usersResp.users) {
+                usersResp.users.forEach(u => userMap.set(u.id, u))
+            }
+            setUsers(userMap)
+
+            // Build target lookup map
+            const targetMap = new Map<string, Target>()
+            if (targetsResp.targets) {
+                targetsResp.targets.forEach(t => targetMap.set(t.id, t))
+            }
+            setTargets(targetMap)
+
+            // Fetch credentials for all targets
+            const credMap = new Map<string, Credential>()
+            if (targetsResp.targets) {
+                const credPromises = targetsResp.targets.map(t =>
+                    api.listCredentials(t.id).catch(() => ({ credentials: [], count: 0 }))
+                )
+                const credResults = await Promise.all(credPromises)
+                credResults.forEach(result => {
+                    result.credentials.forEach(c => credMap.set(c.id, c))
+                })
+            }
+            setCredentials(credMap)
+        } catch (error) {
+            console.error('Failed to fetch lookup data:', error)
+        }
+    }
 
     const fetchSessions = async () => {
         try {
@@ -286,6 +338,22 @@ export default function AuditorPage() {
         }
     }
 
+    // Helper functions to get human-friendly names
+    const getUserName = (userId: string): string => {
+        const u = users.get(userId)
+        return u ? u.display_name || u.email : userId
+    }
+
+    const getTargetName = (targetId: string): string => {
+        const t = targets.get(targetId)
+        return t ? `${t.name} (${t.hostname})` : targetId
+    }
+
+    const getCredentialUsername = (credentialId: string): string => {
+        const c = credentials.get(credentialId)
+        return c ? c.username : 'N/A'
+    }
+
     const getStatusBadge = (status: string) => {
         const statusMap: Record<string, { bg: string, text: string, label: string }> = {
             active: { bg: 'bg-green-100', text: 'text-green-800', label: 'Active' },
@@ -301,6 +369,23 @@ export default function AuditorPage() {
         )
     }
 
+    // Filter and search sessions
+    const filteredSessions = sessions.filter(session => {
+        if (!searchTerm) return true
+
+        const searchLower = searchTerm.toLowerCase()
+        const userName = getUserName(session.user_id).toLowerCase()
+        const targetName = getTargetName(session.target_id).toLowerCase()
+        const credUsername = session.credential_id?.Valid
+            ? getCredentialUsername(session.credential_id.UUID).toLowerCase()
+            : ''
+
+        return userName.includes(searchLower) ||
+               targetName.includes(searchLower) ||
+               credUsername.includes(searchLower) ||
+               session.id.toLowerCase().includes(searchLower)
+    })
+
     if (loading || (!user || (user.role !== 'auditor' && user.role !== 'admin'))) {
         return null
     }
@@ -310,39 +395,60 @@ export default function AuditorPage() {
             <Header />
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 {/* Header */}
-                <div className="mb-8 flex justify-between items-center">
-                    <div>
-                        <h1 className="text-3xl font-bold text-gray-900">Session Audit</h1>
-                        <p className="mt-2 text-gray-600">Monitor and review all sessions with live playback</p>
+                <div className="mb-8">
+                    <div className="flex justify-between items-center mb-4">
+                        <div>
+                            <h1 className="text-3xl font-bold text-gray-900">Session Audit</h1>
+                            <p className="mt-2 text-gray-600">Monitor and review all sessions with live playback</p>
+                        </div>
+                        <div className="flex space-x-2">
+                            <button
+                                onClick={() => setFilter('all')}
+                                className={`px-4 py-2 rounded-lg transition-colors ${filter === 'all'
+                                    ? 'bg-indigo-600 text-white'
+                                    : 'bg-gray-200 text-gray-700'
+                                    }`}
+                            >
+                                All Sessions
+                            </button>
+                            <button
+                                onClick={() => setFilter('active')}
+                                className={`px-4 py-2 rounded-lg transition-colors ${filter === 'active'
+                                    ? 'bg-indigo-600 text-white'
+                                    : 'bg-gray-200 text-gray-700'
+                                    }`}
+                            >
+                                Active ({sessions.filter(s => s.session_status === 'active').length})
+                            </button>
+                            <button
+                                onClick={() => setFilter('completed')}
+                                className={`px-4 py-2 rounded-lg transition-colors ${filter === 'completed'
+                                    ? 'bg-indigo-600 text-white'
+                                    : 'bg-gray-200 text-gray-700'
+                                    }`}
+                            >
+                                Completed
+                            </button>
+                        </div>
                     </div>
-                    <div className="flex space-x-2">
-                        <button
-                            onClick={() => setFilter('all')}
-                            className={`px-4 py-2 rounded-lg transition-colors ${filter === 'all'
-                                ? 'bg-indigo-600 text-white'
-                                : 'bg-gray-200 text-gray-700'
-                                }`}
+
+                    {/* Search bar */}
+                    <div className="relative">
+                        <input
+                            type="text"
+                            placeholder="Search by user, resource, or account..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <svg
+                            className="absolute left-3 top-2.5 h-5 w-5 text-gray-400"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
                         >
-                            All Sessions
-                        </button>
-                        <button
-                            onClick={() => setFilter('active')}
-                            className={`px-4 py-2 rounded-lg transition-colors ${filter === 'active'
-                                ? 'bg-indigo-600 text-white'
-                                : 'bg-gray-200 text-gray-700'
-                                }`}
-                        >
-                            Active ({sessions.filter(s => s.session_status === 'active').length})
-                        </button>
-                        <button
-                            onClick={() => setFilter('completed')}
-                            className={`px-4 py-2 rounded-lg transition-colors ${filter === 'completed'
-                                ? 'bg-indigo-600 text-white'
-                                : 'bg-gray-200 text-gray-700'
-                                }`}
-                        >
-                            Completed
-                        </button>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
                     </div>
                 </div>
 
@@ -358,16 +464,21 @@ export default function AuditorPage() {
                                     <div className="px-4 py-8 text-center text-gray-500">
                                         Loading sessions...
                                     </div>
-                                ) : sessions.length === 0 ? (
+                                ) : filteredSessions.length === 0 ? (
                                     <div className="px-4 py-8 text-center text-gray-500">
-                                        No sessions found
+                                        {searchTerm ? 'No sessions match your search' : 'No sessions found'}
                                     </div>
                                 ) : (
-                                    sessions.map((session) => {
+                                    filteredSessions.map((session) => {
                                         const duration = session.end_time?.Valid && session.end_time.Time
                                             ? Math.round((new Date(session.end_time.Time).getTime() - new Date(session.start_time).getTime()) / 1000 / 60)
                                             : null
                                         const isSelected = selectedSession?.id === session.id
+                                        const userName = getUserName(session.user_id)
+                                        const targetName = getTargetName(session.target_id)
+                                        const accountName = session.credential_id?.Valid
+                                            ? getCredentialUsername(session.credential_id.UUID)
+                                            : 'N/A'
 
                                         return (
                                             <div
@@ -378,19 +489,22 @@ export default function AuditorPage() {
                                             >
                                                 <div className="flex items-start justify-between">
                                                     <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2 mb-1">
+                                                        <div className="flex items-center gap-2 mb-2">
                                                             {getStatusBadge(session.session_status)}
                                                             <span className="px-2 py-0.5 text-xs font-semibold rounded bg-gray-100 text-gray-800">
                                                                 {session.protocol?.toUpperCase() || 'SSH'}
                                                             </span>
                                                         </div>
-                                                        <p className="text-sm font-medium text-gray-900 truncate">
-                                                            {session.user_id}
+                                                        <p className="text-sm font-semibold text-gray-900 truncate" title={userName}>
+                                                            User: {userName}
                                                         </p>
-                                                        <p className="text-xs text-gray-500 truncate">
-                                                            Target: {session.target_id}
+                                                        <p className="text-xs text-gray-600 truncate mt-1" title={accountName}>
+                                                            Account: {accountName}
                                                         </p>
-                                                        <p className="text-xs text-gray-400 mt-1">
+                                                        <p className="text-xs text-gray-600 truncate" title={targetName}>
+                                                            Resource: {targetName}
+                                                        </p>
+                                                        <p className="text-xs text-gray-400 mt-2">
                                                             {new Date(session.start_time).toLocaleString()}
                                                         </p>
                                                         {duration !== null && (
