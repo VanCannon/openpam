@@ -51,36 +51,66 @@ export default function RdpPlayer({ sessionId, mode, recordingData }: RdpPlayerP
 
     // Scale display to fit container
     const scaleDisplay = () => {
-        if (!clientRef.current || !displayRef.current) return
+        // Use requestAnimationFrame to ensure DOM has updated before scaling
+        requestAnimationFrame(() => {
+            if (!clientRef.current || !displayRef.current) return
 
-        const display = clientRef.current.getDisplay()
-        const displayElement = display.getElement()
-        const container = displayRef.current.parentElement
+            const display = clientRef.current.getDisplay()
+            const displayElement = display.getElement()
+            const container = displayRef.current.parentElement
 
-        if (!container) return
+            if (!container) return
 
-        const containerWidth = container.clientWidth
-        const containerHeight = container.clientHeight
+            const containerWidth = container.clientWidth
+            let containerHeight = container.clientHeight
 
-        if (containerWidth === 0 || containerHeight === 0) return
+            // Reserve space for controls in replay mode (approximately 120px)
+            if (mode === 'replay' && duration > 0) {
+                containerHeight = containerHeight - 120
+            }
 
-        const displayWidth = display.getWidth()
-        const displayHeight = display.getHeight()
+            if (containerWidth === 0 || containerHeight === 0) return
 
-        if (displayWidth === 0 || displayHeight === 0) return
+            const displayWidth = display.getWidth()
+            const displayHeight = display.getHeight()
 
-        const scale = Math.min(
-            containerWidth / displayWidth,
-            containerHeight / displayHeight
-        )
+            if (displayWidth === 0 || displayHeight === 0) return
 
-        display.scale(scale)
+            const scale = Math.min(
+                containerWidth / displayWidth,
+                containerHeight / displayHeight
+            )
+
+            try {
+                display.scale(scale)
+            } catch (e) {
+                console.error('Error scaling display:', e)
+            }
+        })
     }
 
     useEffect(() => {
-        window.addEventListener('resize', scaleDisplay)
-        return () => window.removeEventListener('resize', scaleDisplay)
+        const handleResize = () => scaleDisplay()
+
+        window.addEventListener('resize', handleResize)
+        document.addEventListener('fullscreenchange', handleResize)
+
+        // Trigger initial scale after a short delay
+        const timeoutId = setTimeout(scaleDisplay, 100)
+
+        return () => {
+            window.removeEventListener('resize', handleResize)
+            document.removeEventListener('fullscreenchange', handleResize)
+            clearTimeout(timeoutId)
+        }
     }, [])
+
+    // Rescale when duration changes (controls appear)
+    useEffect(() => {
+        if (duration > 0) {
+            scaleDisplay()
+        }
+    }, [duration])
 
     // Handle playback speed changes during playback
     useEffect(() => {

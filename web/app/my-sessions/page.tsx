@@ -21,10 +21,14 @@ export default function MySessionsPage() {
     const [selectedSession, setSelectedSession] = useState<AuditLog | null>(null)
     const [loadingRecording, setLoadingRecording] = useState(false)
     const [recordingContent, setRecordingContent] = useState<string>('')
+    const [isFullscreen, setIsFullscreen] = useState(false)
+    const [leftPanelWidth, setLeftPanelWidth] = useState(400) // Initial width in pixels
+    const [isDragging, setIsDragging] = useState(false)
     const terminalRef = useRef<HTMLDivElement>(null)
     const xtermRef = useRef<XTerm | null>(null)
     const wsRef = useRef<WebSocket | null>(null)
     const fitAddonRef = useRef<FitAddon | null>(null)
+    const viewerContainerRef = useRef<HTMLDivElement>(null)
 
     // Lookup data for human-friendly names
     const [targets, setTargets] = useState<Map<string, Target>>(new Map())
@@ -115,6 +119,65 @@ export default function MySessionsPage() {
         setLoadingRecording(true)
     }
 
+    const toggleFullscreen = () => {
+        if (!viewerContainerRef.current) return
+
+        if (!isFullscreen) {
+            // Enter fullscreen
+            if (viewerContainerRef.current.requestFullscreen) {
+                viewerContainerRef.current.requestFullscreen()
+            }
+        } else {
+            // Exit fullscreen
+            if (document.exitFullscreen) {
+                document.exitFullscreen()
+            }
+        }
+    }
+
+    // Listen for fullscreen changes
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            setIsFullscreen(!!document.fullscreenElement)
+        }
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange)
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    }, [])
+
+    // Handle resizable divider
+    const handleMouseDown = () => {
+        setIsDragging(true)
+    }
+
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!isDragging) return
+
+            // Calculate new width based on mouse position
+            const newWidth = e.clientX - 32 // Subtract page padding
+
+            // Set min and max widths
+            if (newWidth >= 300 && newWidth <= 800) {
+                setLeftPanelWidth(newWidth)
+            }
+        }
+
+        const handleMouseUp = () => {
+            setIsDragging(false)
+        }
+
+        if (isDragging) {
+            document.addEventListener('mousemove', handleMouseMove)
+            document.addEventListener('mouseup', handleMouseUp)
+        }
+
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove)
+            document.removeEventListener('mouseup', handleMouseUp)
+        }
+    }, [isDragging])
+
     // Handle terminal loading when session is selected
     useEffect(() => {
         // Cleanup previous terminal and websocket
@@ -202,9 +265,26 @@ export default function MySessionsPage() {
 
         console.log('Terminal initialized and opened')
 
-        // Handle resize
-        const handleResize = () => fitAddon.fit()
+        // Handle resize - fit terminal to container size
+        const handleResize = () => {
+            // Use requestAnimationFrame to ensure DOM has updated
+            requestAnimationFrame(() => {
+                if (fitAddonRef.current) {
+                    try {
+                        fitAddonRef.current.fit()
+                    } catch (e) {
+                        console.error('Error fitting terminal:', e)
+                    }
+                }
+            })
+        }
         window.addEventListener('resize', handleResize)
+
+        // Also handle fullscreen changes
+        document.addEventListener('fullscreenchange', handleResize)
+
+        // Trigger initial resize after a short delay to ensure container is sized
+        setTimeout(handleResize, 100)
 
         const isActive = session.session_status === 'active'
 
@@ -241,6 +321,7 @@ export default function MySessionsPage() {
 
         return () => {
             window.removeEventListener('resize', handleResize)
+            document.removeEventListener('fullscreenchange', handleResize)
         }
     }
 
@@ -384,7 +465,7 @@ export default function MySessionsPage() {
     return (
         <div className="min-h-screen bg-gray-50">
             <Header />
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
                 {/* Header */}
                 <div className="mb-8">
                     <div className="flex justify-between items-center mb-4">
@@ -443,9 +524,9 @@ export default function MySessionsPage() {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="flex gap-0">
                     {/* Sessions List */}
-                    <div className="lg:col-span-1">
+                    <div style={{ width: `${leftPanelWidth}px`, minWidth: '300px', maxWidth: '800px' }}>
                         <div className="bg-white shadow-md rounded-lg overflow-hidden">
                             <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
                                 <h2 className="text-lg font-semibold text-gray-900">Sessions</h2>
@@ -515,9 +596,16 @@ export default function MySessionsPage() {
                         </div>
                     </div>
 
+                    {/* Resizable Divider */}
+                    <div
+                        className={`w-1 bg-gray-300 hover:bg-indigo-500 cursor-col-resize transition-colors ${isDragging ? 'bg-indigo-500' : ''}`}
+                        onMouseDown={handleMouseDown}
+                        style={{ userSelect: 'none' }}
+                    />
+
                     {/* Session Viewer */}
-                    <div className="lg:col-span-2">
-                        <div className="bg-white shadow-md rounded-lg overflow-hidden">
+                    <div className="flex-1 ml-6">
+                        <div ref={viewerContainerRef} className={`bg-white shadow-md rounded-lg overflow-hidden ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
                             <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
                                 <div>
                                     <h2 className="text-lg font-semibold text-gray-900">
@@ -540,19 +628,37 @@ export default function MySessionsPage() {
                                     )}
                                 </div>
                                 {selectedSession && (
-                                    <button
-                                        onClick={() => setSelectedSession(null)}
-                                        className="text-gray-400 hover:text-gray-600"
-                                    >
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={toggleFullscreen}
+                                            className="text-gray-400 hover:text-gray-600"
+                                            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                                        >
+                                            {isFullscreen ? (
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                </svg>
+                                            ) : (
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                                                </svg>
+                                            )}
+                                        </button>
+                                        <button
+                                            onClick={() => setSelectedSession(null)}
+                                            className="text-gray-400 hover:text-gray-600"
+                                            title="Close viewer"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        </button>
+                                    </div>
                                 )}
                             </div>
 
                             {selectedSession ? (
-                                <div className="bg-[#1e1e1e] h-[calc(100vh-300px)] relative">
+                                <div className={`bg-[#1e1e1e] relative ${isFullscreen ? 'h-[calc(100vh-60px)]' : 'h-[calc(100vh-300px)]'}`}>
                                     {selectedSession.protocol === 'rdp' ? (
                                         <RdpPlayer
                                             sessionId={selectedSession.id}
