@@ -213,24 +213,25 @@ func (p *Proxy) Handle(
 	var wg sync.WaitGroup
 	wg.Add(3) // Main 2 goroutines + 1 background worker
 
-	// Use a channel to signal that one side has closed the connection
-	// This allows us to unblock the other side
+	// Use channels for clean shutdown coordination
 	doneChan := make(chan struct{})
+	stopChan := make(chan struct{}) // Signal goroutines to stop
 	errChan := make(chan error, 2)
 	var bytesSent, bytesReceived int64
 
-	// Use sync.Once to ensure connections are only closed once
-	var closeOnce sync.Once
-	closeConnections := func() {
-		// Try to send a proper close frame to prevent "discarding reader" warnings
-		// Ignore errors since connection may already be closed
-		wsConn.WriteControl(
-			websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-			time.Now().Add(time.Second),
-		)
-		wsConn.Close()
-		guacdConn.Close()
+	// Use sync.Once to ensure clean shutdown happens only once
+	var shutdownOnce sync.Once
+
+	// Shutdown function that signals stop before closing
+	shutdown := func() {
+		shutdownOnce.Do(func() {
+			close(stopChan) // Signal all goroutines to stop
+			// Give goroutines a moment to see the signal and exit cleanly
+			time.Sleep(10 * time.Millisecond)
+			// Now close the connections
+			wsConn.Close()
+			guacdConn.Close()
+		})
 	}
 
 	// Create instruction queue for async processing
@@ -273,6 +274,14 @@ func (p *Proxy) Handle(
 
 		// We parse instructions here to record them
 		for {
+			// Check if we should stop
+			select {
+			case <-stopChan:
+				p.logger.Info("guacd->ws goroutine stopping due to shutdown signal")
+				return
+			default:
+			}
+
 			opcode, args, err := p.readInstruction(guacdReader)
 			if err != nil {
 				if err != io.EOF {
@@ -284,8 +293,7 @@ func (p *Proxy) Handle(
 				} else {
 					p.logger.Info("guacd connection closed (EOF)")
 				}
-				// Close connections to unblock the other goroutine
-				closeOnce.Do(closeConnections)
+				shutdown()
 				return
 			}
 
@@ -304,8 +312,7 @@ func (p *Proxy) Handle(
 					p.logger.Error("ws write error", map[string]interface{}{"error": err.Error()})
 					errChan <- err
 				}
-				// Close connections to unblock the other goroutine
-				closeOnce.Do(closeConnections)
+				shutdown()
 				return
 			}
 
@@ -333,6 +340,8 @@ func (p *Proxy) Handle(
 						// If error (e.g. closed connection), stop
 						return
 					}
+				case <-stopChan:
+					return
 				case <-doneChan:
 					return
 				}
@@ -340,6 +349,14 @@ func (p *Proxy) Handle(
 		}()
 
 		for {
+			// Check if we should stop
+			select {
+			case <-stopChan:
+				p.logger.Info("ws->guacd goroutine stopping due to shutdown signal")
+				return
+			default:
+			}
+
 			_, message, err := wsConn.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
@@ -348,8 +365,7 @@ func (p *Proxy) Handle(
 				} else {
 					p.logger.Info("WebSocket closed normally")
 				}
-				// Close connections to unblock the other goroutine
-				closeOnce.Do(closeConnections)
+				shutdown()
 				return
 			}
 
@@ -369,8 +385,7 @@ func (p *Proxy) Handle(
 					// Respond to keep-alive
 					err = p.sendInstruction(&wsWriter{wsConn}, "nop")
 					if err != nil {
-						// Close connections to unblock the other goroutine
-						closeOnce.Do(closeConnections)
+						shutdown()
 						return
 					}
 					continue
@@ -383,8 +398,7 @@ func (p *Proxy) Handle(
 						p.logger.Error("guacd write error", map[string]interface{}{"error": err.Error()})
 						errChan <- err
 					}
-					// Close connections to unblock the other goroutine
-					closeOnce.Do(closeConnections)
+					shutdown()
 					return
 				}
 			}
@@ -410,8 +424,8 @@ func (p *Proxy) Handle(
 		auditLog.BytesReceived = bytesReceived
 	}
 
-	// Ensure clean shutdown (use sync.Once to prevent double-close errors)
-	closeOnce.Do(closeConnections)
+	// Ensure clean shutdown - signal goroutines to stop, then close connections
+	shutdown()
 
 	return finalErr
 }
