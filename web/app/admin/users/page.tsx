@@ -41,7 +41,7 @@ export default function UsersManagementPage() {
   const [groupToDelete, setGroupToDelete] = useState<Group | null>(null)
 
   useEffect(() => {
-    if (!loading && (!user || user.role !== 'admin')) {
+    if (loading || !user || (user.role.toLowerCase() !== 'admin' && user.role.toLowerCase() !== 'auditor')) {
       router.push('/dashboard')
     }
   }, [user, loading, router])
@@ -162,7 +162,7 @@ export default function UsersManagementPage() {
     }
   }
 
-  if (loading || user?.role !== 'admin') {
+  if (loading || !(user && (user.role.toLowerCase() === 'admin' || user.role.toLowerCase() === 'auditor'))) {
     return null
   }
 
@@ -379,15 +379,17 @@ export default function UsersManagementPage() {
                         {g.description}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={() => {
-                            setGroupToDelete(g)
-                            setShowDeleteModal(true)
-                          }}
-                          className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
-                        >
-                          Delete
-                        </button>
+                        {g.role.toLowerCase() === 'admin' && (
+                          <button
+                            onClick={() => {
+                              setGroupToDelete(g)
+                              setShowDeleteModal(true)
+                            }}
+                            className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                          >
+                            Delete
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))

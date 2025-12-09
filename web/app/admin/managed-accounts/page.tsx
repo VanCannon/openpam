@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuth } from '@/lib/auth-context'
 import Header from '@/components/header'
 import { Button } from '@/components/ui/button'
 
@@ -16,18 +18,28 @@ interface User {
 }
 
 export default function ManagedAccountsPage() {
+    const { user, loading } = useAuth()
+    const router = useRouter()
     const [users, setUsers] = useState<User[]>([])
-    const [loading, setLoading] = useState(true)
+    const [loadingUsers, setLoadingUsers] = useState(true)
 
     useEffect(() => {
-        fetch('/api/v1/managed-accounts')
-            .then(res => res.json())
-            .then(data => {
-                setUsers(data.accounts || [])
-            })
-            .catch(err => console.error('Failed to fetch users:', err))
-            .finally(() => setLoading(false))
-    }, [])
+        if (!loading && (!user || user.role.toLowerCase() !== 'admin')) {
+            router.push('/dashboard')
+        }
+    }, [user, loading, router])
+
+    useEffect(() => {
+        if (user?.role.toLowerCase() === 'admin') {
+            fetch('/api/v1/managed-accounts')
+                .then(res => res.json())
+                .then(data => {
+                    setUsers(data.accounts || [])
+                })
+                .catch(err => console.error('Failed to fetch users:', err))
+                .finally(() => setLoadingUsers(false))
+        }
+    }, [user])
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -53,7 +65,7 @@ export default function ManagedAccountsPage() {
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
-                                {loading ? (
+                                {loadingUsers ? (
                                     <tr>
                                         <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">Loading...</td>
                                     </tr>

@@ -124,7 +124,8 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		log,
 	)
 
-	scheduleHandler := handlers.NewScheduleHandler(log)
+	scheduleRepo := repository.NewScheduleRepository(db)
+	scheduleHandler := handlers.NewScheduleHandler(scheduleRepo, log)
 
 	s := &Server{
 		config:            cfg,

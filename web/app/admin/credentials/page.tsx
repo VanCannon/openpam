@@ -26,7 +26,7 @@ export default function CredentialsPage() {
   })
 
   useEffect(() => {
-    if (!user && !authLoading) {
+    if (!loading && (!user || user.role.toLowerCase() !== 'admin')) {
       router.push('/login')
       return
     }
@@ -126,7 +126,7 @@ export default function CredentialsPage() {
     }
   }
 
-  if (authLoading || !user) {
+  if (authLoading || !user || user.role.toLowerCase() !== 'admin') {
     return <div className="flex min-h-screen items-center justify-center"><p>Loading...</p></div>
   }
 

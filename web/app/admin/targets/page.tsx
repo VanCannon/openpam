@@ -25,7 +25,7 @@ export default function TargetsPage() {
   })
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!loading && (!user || user.role.toLowerCase() !== 'admin')) {
       router.push('/login')
     }
   }, [user, loading, router])
@@ -83,7 +83,7 @@ export default function TargetsPage() {
     }
   }
 
-  if (loading || !user) {
+  if (loading || user?.role.toLowerCase() !== 'admin') {
     return <div className="flex min-h-screen items-center justify-center"><p>Loading...</p></div>
   }
 

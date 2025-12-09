@@ -20,9 +20,9 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:    32768, // 32KB for better RDP performance
-	WriteBufferSize:   32768, // 32KB for better RDP performance
-	EnableCompression: true,  // Enable compression for bandwidth reduction
+	ReadBufferSize:    16384, // 16KB
+	WriteBufferSize:   16384, // 16KB
+	EnableCompression: false, // Disable compression - can interfere with Guacamole protocol
 	Subprotocols:      []string{"guacamole"}, // Support Guacamole WebSocket protocol
 	CheckOrigin: func(r *http.Request) bool {
 		// TODO: Implement proper origin checking in production

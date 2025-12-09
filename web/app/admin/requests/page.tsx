@@ -23,13 +23,13 @@ export default function ScheduleRequestsPage() {
     const [filter, setFilter] = useState<'pending' | 'all'>('pending')
 
     useEffect(() => {
-        if (!loading && (!user || user.role !== 'admin')) {
+        if (!loading && (!user || user.role.toLowerCase() !== 'admin')) {
             router.push('/dashboard')
         }
     }, [user, loading, router])
 
     useEffect(() => {
-        if (user?.role === 'admin') {
+        if (user?.role.toLowerCase() === 'admin') {
             fetchTargets()
             fetchSchedules()
         }
@@ -137,7 +137,7 @@ export default function ScheduleRequestsPage() {
         return new Date(dateString).toLocaleString()
     }
 
-    if (loading || user?.role !== 'admin') {
+    if (loading || user?.role.toLowerCase() !== 'admin') {
         return null
     }
 

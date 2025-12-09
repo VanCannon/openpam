@@ -17,7 +17,7 @@ export default function ZonesPage() {
   const [formData, setFormData] = useState({ name: '', type: 'hub' as 'hub' | 'satellite', description: '' })
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!loading && (!user || user.role.toLowerCase() !== 'admin')) {
       router.push('/login')
     }
   }, [user, loading, router])
@@ -65,7 +65,7 @@ export default function ZonesPage() {
     }
   }
 
-  if (loading || !user) {
+  if (loading || user?.role.toLowerCase() !== 'admin') {
     return <div className="flex min-h-screen items-center justify-center"><p>Loading...</p></div>
   }
 

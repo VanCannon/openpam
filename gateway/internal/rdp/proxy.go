@@ -9,7 +9,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/VanCannon/openpam/gateway/internal/logger"
 	"github.com/VanCannon/openpam/gateway/internal/models"
@@ -47,6 +46,11 @@ func (p *Proxy) Handle(
 	width int,
 	height int,
 ) error {
+	p.logger.Info("RDP Handle() called", map[string]interface{}{
+		"session_id": auditLog.ID.String(),
+		"target":     target.Hostname,
+	})
+
 	// Connect to guacd
 	guacdConn, err := net.Dial("tcp", p.guacdAddress)
 	if err != nil {
@@ -226,10 +230,7 @@ func (p *Proxy) Handle(
 	shutdown := func() {
 		shutdownOnce.Do(func() {
 			close(stopChan) // Signal all goroutines to stop
-			// Give goroutines a moment to see the signal and exit cleanly
-			time.Sleep(50 * time.Millisecond)
-			// Close both connections
-			// Note: WebSocket library may log harmless warnings during cleanup (filtered in main.go)
+			// Close connections immediately to unblock any goroutines stuck in blocking I/O
 			wsConn.Close()
 			guacdConn.Close()
 		})
@@ -246,24 +247,28 @@ func (p *Proxy) Handle(
 	go func() {
 		defer wg.Done()
 		for instr := range instrChan {
-			// Record instruction (non-blocking from main flow)
+			// Record instruction in background (don't wait)
 			if p.recorder != nil {
-				if err := p.recorder.WriteInstruction(auditLog.ID.String(), instr.opcode, instr.args...); err != nil {
-					p.logger.Error("Failed to record instruction", map[string]interface{}{
-						"error": err.Error(),
-					})
-				}
+				go func(op string, a []string) {
+					if err := p.recorder.WriteInstruction(auditLog.ID.String(), op, a...); err != nil {
+						p.logger.Error("Failed to record instruction", map[string]interface{}{
+							"error": err.Error(),
+						})
+					}
+				}(instr.opcode, instr.args)
 			}
 
-			// Broadcast to monitor (non-blocking from main flow)
+			// Broadcast to monitor in background (don't wait)
 			if p.monitor != nil {
-				var sb strings.Builder
-				sb.WriteString(fmt.Sprintf("%d.%s", len(instr.opcode), instr.opcode))
-				for _, arg := range instr.args {
-					sb.WriteString(fmt.Sprintf(",%d.%s", len(arg), arg))
-				}
-				sb.WriteString(";")
-				p.monitor.Broadcast(auditLog.ID.String(), []byte(sb.String()))
+				go func(op string, a []string) {
+					var sb strings.Builder
+					sb.WriteString(fmt.Sprintf("%d.%s", len(op), op))
+					for _, arg := range a {
+						sb.WriteString(fmt.Sprintf(",%d.%s", len(arg), arg))
+					}
+					sb.WriteString(";")
+					p.monitor.Broadcast(auditLog.ID.String(), []byte(sb.String()))
+				}(instr.opcode, instr.args)
 			}
 		}
 	}()
@@ -275,14 +280,6 @@ func (p *Proxy) Handle(
 
 		// We parse instructions here to record them
 		for {
-			// Check if we should stop
-			select {
-			case <-stopChan:
-				p.logger.Info("guacd->ws goroutine stopping due to shutdown signal")
-				return
-			default:
-			}
-
 			opcode, args, err := p.readInstruction(guacdReader)
 			if err != nil {
 				if err != io.EOF {
@@ -326,38 +323,7 @@ func (p *Proxy) Handle(
 	go func() {
 		defer wg.Done()
 
-		// Create a ticker to send keep-alives to guacd
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-
-		// Goroutine to handle keep-alives
-		go func() {
-			for {
-				select {
-				case <-ticker.C:
-					// Send nop to guacd to keep connection alive
-					err := p.sendInstruction(guacdConn, "nop")
-					if err != nil {
-						// If error (e.g. closed connection), stop
-						return
-					}
-				case <-stopChan:
-					return
-				case <-doneChan:
-					return
-				}
-			}
-		}()
-
 		for {
-			// Check if we should stop
-			select {
-			case <-stopChan:
-				p.logger.Info("ws->guacd goroutine stopping due to shutdown signal")
-				return
-			default:
-			}
-
 			_, message, err := wsConn.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {

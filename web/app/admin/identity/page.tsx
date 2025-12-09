@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuth } from '@/lib/auth-context'
 import Header from '@/components/header'
 import { Button } from '@/components/ui/button'
 
@@ -37,8 +39,10 @@ interface ADGroup {
 }
 
 export default function IdentityPage() {
+    const { user, loading } = useAuth()
+    const router = useRouter()
     const [activeTab, setActiveTab] = useState<'users' | 'computers' | 'groups'>('users')
-    const [loading, setLoading] = useState(false)
+    const [syncLoading, setSyncLoading] = useState(false)
     const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle')
     const [lastSync, setLastSync] = useState<string | null>(null)
     const [zones, setZones] = useState<{ id: string, name: string }[]>([])
@@ -64,19 +68,27 @@ export default function IdentityPage() {
     const [importing, setImporting] = useState(false)
 
     useEffect(() => {
-        // Fetch config on load
-        fetch('/api/v1/identity/config')
-            .then(res => res.json())
-            .then(data => {
-                if (data.host) {
-                    setConfig(prev => ({ ...prev, ...data }))
-                }
-            })
-            .catch(err => console.error('Failed to fetch config:', err))
+        if (!loading && (!user || user.role.toLowerCase() !== 'admin')) {
+            router.push('/dashboard')
+        }
+    }, [user, loading, router])
 
-        fetchADData()
-        fetchZones()
-    }, [])
+    useEffect(() => {
+        if (user?.role.toLowerCase() === 'admin') {
+            // Fetch config on load
+            fetch('/api/v1/identity/config')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.host) {
+                        setConfig(prev => ({ ...prev, ...data }))
+                    }
+                })
+                .catch(err => console.error('Failed to fetch config:', err))
+
+            fetchADData()
+            fetchZones()
+        }
+    }, [user])
 
     const fetchZones = () => {
         fetch('/api/v1/zones')
@@ -124,7 +136,7 @@ export default function IdentityPage() {
     }
 
     const handleSync = async () => {
-        setLoading(true)
+        setSyncLoading(true)
         setSyncStatus('syncing')
         try {
             const res = await fetch('/api/v1/orchestrator/sync/ad', {
@@ -140,7 +152,7 @@ export default function IdentityPage() {
         } catch (error) {
             setSyncStatus('error')
         } finally {
-            setLoading(false)
+            setSyncLoading(false)
         }
     }
 
@@ -413,11 +425,11 @@ export default function IdentityPage() {
                                 <div className="pt-6">
                                     <Button
                                         onClick={handleSync}
-                                        disabled={loading}
+                                        disabled={syncLoading}
                                         className="w-full"
                                         variant={syncStatus === 'error' ? 'destructive' : 'default'}
                                     >
-                                        {loading ? 'Syncing...' : 'Sync Now'}
+                                        {syncLoading ? 'Syncing...' : 'Sync Now'}
                                     </Button>
                                 </div>
                             </div>

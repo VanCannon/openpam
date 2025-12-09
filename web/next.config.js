@@ -69,7 +69,7 @@ const nextConfig = {
       },
       {
         source: '/api/v1/schedules/:path*',
-        destination: 'http://localhost:8081/api/v1/schedules/:path*',
+        destination: 'http://localhost:8080/api/v1/schedules/:path*',
       },
       {
         source: '/api/v1/auth/:path*',

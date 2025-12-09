@@ -52,7 +52,7 @@ export default function Header() {
                             My Sessions
                         </Link>
 
-                        {user.role === 'admin' && (
+                        {user.role.toLowerCase() === 'admin' && (
                             <>
                                 <Link
                                     href="/admin"
@@ -66,28 +66,10 @@ export default function Header() {
                                 >
                                     Requests
                                 </Link>
-                                <Link
-                                    href="/admin/audit"
-                                    className={`text-sm ${isActive('/admin/audit') ? 'text-gray-900 font-medium' : 'text-blue-600 hover:text-blue-800'}`}
-                                >
-                                    Audit Logs
-                                </Link>
-                                <Link
-                                    href="/admin/users"
-                                    className={`text-sm ${isActive('/admin/users') ? 'text-gray-900 font-medium' : 'text-blue-600 hover:text-blue-800'}`}
-                                >
-                                    Users
-                                </Link>
-                                <Link
-                                    href="/admin/computers"
-                                    className={`text-sm ${isActive('/admin/computers') ? 'text-gray-900 font-medium' : 'text-blue-600 hover:text-blue-800'}`}
-                                >
-                                    Computers
-                                </Link>
                             </>
                         )}
 
-                        {(user.role === 'auditor' || user.role === 'admin') && (
+                        {(user.role.toLowerCase() === 'auditor' || user.role.toLowerCase() === 'admin') && (
                             <Link
                                 href="/auditor"
                                 className={`text-sm ${isActive('/auditor') ? 'text-gray-900 font-medium' : 'text-blue-600 hover:text-blue-800'}`}
