@@ -227,8 +227,9 @@ func (p *Proxy) Handle(
 		shutdownOnce.Do(func() {
 			close(stopChan) // Signal all goroutines to stop
 			// Give goroutines a moment to see the signal and exit cleanly
-			time.Sleep(10 * time.Millisecond)
-			// Now close the connections
+			time.Sleep(50 * time.Millisecond)
+			// Close both connections
+			// Note: WebSocket library may log harmless warnings during cleanup (filtered in main.go)
 			wsConn.Close()
 			guacdConn.Close()
 		})

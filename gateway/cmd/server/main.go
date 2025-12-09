@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,7 +18,26 @@ import (
 	"github.com/VanCannon/openpam/gateway/internal/vault"
 )
 
+// filteringWriter filters out harmless WebSocket library log messages
+type filteringWriter struct {
+	writer io.Writer
+}
+
+func (w *filteringWriter) Write(p []byte) (n int, err error) {
+	msg := string(p)
+	// Filter out harmless websocket library internal messages
+	if strings.Contains(msg, "websocket: discarding reader close error: io: read/write on closed pipe") {
+		// Silently discard this harmless library warning
+		return len(p), nil
+	}
+	return w.writer.Write(p)
+}
+
 func main() {
+	// Set up filtered logger to suppress harmless websocket library warnings
+	log.SetOutput(&filteringWriter{writer: os.Stderr})
+	log.SetFlags(log.LstdFlags)
+
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
