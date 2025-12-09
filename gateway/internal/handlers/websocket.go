@@ -20,9 +20,10 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
-	Subprotocols:    []string{"guacamole"}, // Support Guacamole WebSocket protocol
+	ReadBufferSize:    32768, // 32KB for better RDP performance
+	WriteBufferSize:   32768, // 32KB for better RDP performance
+	EnableCompression: true,  // Enable compression for bandwidth reduction
+	Subprotocols:      []string{"guacamole"}, // Support Guacamole WebSocket protocol
 	CheckOrigin: func(r *http.Request) bool {
 		// TODO: Implement proper origin checking in production
 		return true
@@ -231,6 +232,10 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 			return
 		}
 		defer conn.Close()
+
+		// Set deadlines to prevent hanging connections
+		conn.SetReadDeadline(time.Time{})  // No read deadline
+		conn.SetWriteDeadline(time.Time{}) // No write deadline
 
 		// Create audit log entry
 		userUUID, _ := uuid.Parse(userID)

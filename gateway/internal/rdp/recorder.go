@@ -1,6 +1,7 @@
 package rdp
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -26,13 +27,15 @@ type Recorder struct {
 
 // RecordingSession represents an active recording session
 type RecordingSession struct {
-	SessionID    string
-	FilePath     string
-	File         *os.File
-	StartTime    time.Time
-	LastRealTime time.Time
-	CurrentTime  time.Duration // Accumulated recorded time
-	mu           sync.Mutex
+	SessionID       string
+	FilePath        string
+	File            *os.File
+	Writer          *bufio.Writer // Buffered writer for better performance
+	StartTime       time.Time
+	LastRealTime    time.Time
+	CurrentTime     time.Duration // Accumulated recorded time
+	InstructionCount int64         // Count of instructions written
+	mu              sync.Mutex
 }
 
 // NewRecorder creates a new session recorder
@@ -64,13 +67,18 @@ func (r *Recorder) StartRecording(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("failed to create recording file: %w", err)
 	}
 
+	// Create buffered writer for better I/O performance (64KB buffer)
+	writer := bufio.NewWriterSize(file, 65536)
+
 	session := &RecordingSession{
-		SessionID:    sessionID,
-		FilePath:     filePath,
-		File:         file,
-		StartTime:    time.Now(),
-		LastRealTime: time.Now(),
-		CurrentTime:  0,
+		SessionID:        sessionID,
+		FilePath:         filePath,
+		File:             file,
+		Writer:           writer,
+		StartTime:        time.Now(),
+		LastRealTime:     time.Now(),
+		CurrentTime:      0,
+		InstructionCount: 0,
 	}
 
 	r.sessions[sessionID] = session
@@ -123,8 +131,18 @@ func (r *Recorder) WriteInstruction(sessionID string, opcode string, args ...str
 
 	sb.WriteString(";\n")
 
-	if _, err := session.File.WriteString(sb.String()); err != nil {
+	if _, err := session.Writer.WriteString(sb.String()); err != nil {
 		return fmt.Errorf("failed to write to recording file: %w", err)
+	}
+
+	session.InstructionCount++
+
+	// Flush every 100 instructions to ensure data doesn't sit in buffer too long
+	// This prevents buffer buildup while still benefiting from buffering
+	if session.InstructionCount%100 == 0 {
+		if err := session.Writer.Flush(); err != nil {
+			return fmt.Errorf("failed to flush recording buffer: %w", err)
+		}
 	}
 
 	return nil
@@ -138,6 +156,11 @@ func (r *Recorder) StopRecording(sessionID string) error {
 	session, exists := r.sessions[sessionID]
 	if !exists {
 		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	// Flush any remaining data in buffer
+	if err := session.Writer.Flush(); err != nil {
+		return fmt.Errorf("failed to flush recording buffer: %w", err)
 	}
 
 	// Close file
