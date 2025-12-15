@@ -1,0 +1,8 @@
+ALTER TABLE schedules DROP COLUMN IF EXISTS account_details;
+ALTER TABLE schedules DROP CONSTRAINT IF EXISTS check_account_type;
+ALTER TABLE schedules DROP COLUMN IF EXISTS account_type;
+ALTER TABLE schedules DROP CONSTRAINT IF EXISTS check_type;
+ALTER TABLE schedules DROP COLUMN IF EXISTS type;
+
+DROP TABLE IF EXISTS user_groups;
+DROP TABLE IF EXISTS groups;

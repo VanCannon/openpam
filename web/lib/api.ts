@@ -1,6 +1,6 @@
 import { User, Zone, Target, Credential, AuditLog, SystemAuditLog, ListResponse } from '@/types'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
 
 class ApiClient {
   private baseUrl: string
@@ -244,6 +244,102 @@ class ApiClient {
 
   async getSystemAuditLog(id: string): Promise<SystemAuditLog> {
     return this.request<SystemAuditLog>(`/api/v1/system-audit-logs/${id}`)
+  }
+
+  // Groups
+  async listGroups(): Promise<ListResponse<import('@/types').Group>> {
+    return this.request<ListResponse<import('@/types').Group>>('/api/v1/groups')
+  }
+
+  async getGroup(id: string): Promise<import('@/types').Group> {
+    return this.request<import('@/types').Group>(`/api/v1/groups/${id}`)
+  }
+
+  async createGroup(group: { name: string; description?: string }): Promise<import('@/types').Group> {
+    return this.request<import('@/types').Group>('/api/v1/groups', {
+      method: 'POST',
+      body: JSON.stringify(group),
+    })
+  }
+
+  async updateGroup(id: string, group: { name?: string; description?: string }): Promise<import('@/types').Group> {
+    return this.request<import('@/types').Group>(`/api/v1/groups/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(group),
+    })
+  }
+
+  async deleteGroup(id: string): Promise<void> {
+    return this.request<void>(`/api/v1/groups/${id}`, {
+      method: 'DELETE',
+    })
+  }
+
+  async listGroupMembers(groupId: string): Promise<ListResponse<import('@/types').User>> {
+    return this.request<ListResponse<import('@/types').User>>(`/api/v1/groups/${groupId}/members`)
+  }
+
+  async addGroupMember(groupId: string, userId: string): Promise<void> {
+    return this.request<void>(`/api/v1/groups/${groupId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    })
+  }
+
+  async removeGroupMember(groupId: string, userId: string): Promise<void> {
+    return this.request<void>(`/api/v1/groups/${groupId}/members/${userId}`, {
+      method: 'DELETE',
+    })
+  }
+
+  // Schedules
+  async listSchedules(params?: { user_id?: string; target_id?: string; status?: string; approval_status?: string; type?: string; limit?: number; offset?: number }): Promise<ListResponse<import('@/types/schedule').Schedule>> {
+    const query = new URLSearchParams()
+    if (params?.user_id) query.set('user_id', params.user_id)
+    if (params?.target_id) query.set('target_id', params.target_id)
+    if (params?.status) query.set('status', params.status)
+    if (params?.approval_status) query.set('approval_status', params.approval_status)
+    if (params?.type) query.set('type', params.type)
+    if (params?.limit) query.set('limit', params.limit.toString())
+    if (params?.offset) query.set('offset', params.offset.toString())
+
+    const queryString = query.toString()
+    return this.request<ListResponse<import('@/types/schedule').Schedule>>(`/api/v1/schedules${queryString ? '?' + queryString : ''}`)
+  }
+
+  async getSchedule(id: string): Promise<import('@/types/schedule').Schedule> {
+    return this.request<import('@/types/schedule').Schedule>(`/api/v1/schedules/${id}`)
+  }
+
+  async createSchedule(schedule: Partial<import('@/types/schedule').Schedule>): Promise<import('@/types/schedule').Schedule> {
+    return this.request<import('@/types/schedule').Schedule>('/api/v1/schedules/request', {
+      method: 'POST',
+      body: JSON.stringify(schedule),
+    })
+  }
+
+  async requestSchedule(request: { user_id: string; target_id: string; start_time: string; end_time: string; timezone: string; type?: string; account_type?: string; account_details?: any }): Promise<import('@/types/schedule').Schedule> {
+    return this.request<import('@/types/schedule').Schedule>('/api/v1/schedules/request', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    })
+  }
+
+  async updateSchedule(id: string, schedule: Partial<import('@/types/schedule').Schedule>): Promise<import('@/types/schedule').Schedule> {
+    return this.request<import('@/types/schedule').Schedule>(`/api/v1/schedules/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(schedule),
+    })
+  }
+
+  async deleteSchedule(id: string): Promise<void> {
+    return this.request<void>(`/api/v1/schedules/${id}`, {
+      method: 'DELETE',
+    })
+  }
+
+  async checkScheduleAccess(targetId: string): Promise<{ allowed: boolean; schedule?: import('@/types/schedule').Schedule; message?: string; expires_at?: string }> {
+    return this.request<{ allowed: boolean; schedule?: import('@/types/schedule').Schedule; message?: string; expires_at?: string }>(`/api/v1/schedule/check?target_id=${targetId}`)
   }
 
   // WebSocket URL for connections

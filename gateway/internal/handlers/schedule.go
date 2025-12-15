@@ -35,6 +35,9 @@ type CreateScheduleRequest struct {
 	RecurrenceRule *string                `json:"recurrence_rule,omitempty"`
 	Timezone       string                 `json:"timezone"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	Type           string                 `json:"type"`
+	AccountType    string                 `json:"account_type"`
+	AccountDetails map[string]interface{} `json:"account_details,omitempty"`
 }
 
 // ApproveScheduleRequest represents a schedule approval request
@@ -66,6 +69,11 @@ func (h *ScheduleHandler) HandleRequestSchedule() http.HandlerFunc {
 		ctx := r.Context()
 		userIDStr := middleware.GetUserID(ctx)
 		userRole := middleware.GetUserRole(ctx)
+
+		h.logger.Info("HandleRequestSchedule called", map[string]interface{}{
+			"user_id": userIDStr,
+			"role":    userRole,
+		})
 
 		if r.Method != http.MethodPost {
 			h.respondWithError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -132,6 +140,37 @@ func (h *ScheduleHandler) HandleRequestSchedule() http.HandlerFunc {
 			ApprovalStatus: models.ApprovalStatusPending,
 			CreatedAt:      time.Now(),
 			UpdatedAt:      time.Now(),
+			Type:           req.Type,
+			AccountType:    req.AccountType,
+		}
+
+		// Auto-approve if user is admin
+		if userRole == models.RoleAdmin {
+			schedule.ApprovalStatus = models.ApprovalStatusApproved
+
+			// ApprovedBy should be the requester (admin), not the target user
+			requesterID, _ := uuid.Parse(userIDStr)
+			schedule.ApprovedBy = &requesterID
+
+			now := time.Now()
+			schedule.ApprovedAt = &now
+
+			// If start time is now or in the past, OR if it's standing access, set status to active
+			if schedule.Type == "standing" || schedule.StartTime.Before(now) || schedule.StartTime.Equal(now) {
+				schedule.Status = models.ScheduleStatusActive
+			}
+		}
+
+		if req.AccountDetails != nil {
+			schedule.AccountDetails = req.AccountDetails
+		}
+
+		// Set defaults if missing
+		if schedule.Type == "" {
+			schedule.Type = "scheduled"
+		}
+		if schedule.AccountType == "" {
+			schedule.AccountType = "static"
 		}
 
 		if req.Metadata != nil {
@@ -179,6 +218,7 @@ func (h *ScheduleHandler) HandleListSchedules() http.HandlerFunc {
 		targetIDStr := r.URL.Query().Get("target_id")
 		statusStr := r.URL.Query().Get("status")
 		approvalStatusStr := r.URL.Query().Get("approval_status")
+		typeStr := r.URL.Query().Get("type")
 		filterUserIDStr := r.URL.Query().Get("user_id")
 
 		// Non-admins can only see their own schedules
@@ -214,7 +254,12 @@ func (h *ScheduleHandler) HandleListSchedules() http.HandlerFunc {
 			filterApprovalStatus = &approvalStatusStr
 		}
 
-		schedules, err := h.repo.List(ctx, filterUserID, filterTargetID, filterStatus, filterApprovalStatus)
+		var filterType *string
+		if typeStr != "" {
+			filterType = &typeStr
+		}
+
+		schedules, err := h.repo.List(ctx, filterUserID, filterTargetID, filterStatus, filterApprovalStatus, filterType)
 		if err != nil {
 			h.logger.Error("Failed to list schedules", map[string]interface{}{
 				"error": err.Error(),
@@ -257,8 +302,63 @@ func (h *ScheduleHandler) HandleApproveSchedule() http.HandlerFunc {
 			return
 		}
 
-		// TODO: Handle start/end time modifications if provided
-		// For now, just approve
+		h.logger.Info("Approving schedule", map[string]interface{}{
+			"schedule_id": req.ScheduleID,
+			"req_start":   req.StartTime,
+			"req_end":     req.EndTime,
+		})
+
+		// Handle start/end time modifications if provided
+		var newStartTime, newEndTime *time.Time
+		var newType *string
+
+		if req.StartTime != nil {
+			t, err := time.Parse(time.RFC3339, *req.StartTime)
+			if err != nil {
+				h.respondWithError(w, http.StatusBadRequest, "Invalid start_time format")
+				return
+			}
+			newStartTime = &t
+		}
+
+		if req.EndTime != nil {
+			t, err := time.Parse(time.RFC3339, *req.EndTime)
+			if err != nil {
+				h.respondWithError(w, http.StatusBadRequest, "Invalid end_time format")
+				return
+			}
+			newEndTime = &t
+		}
+
+		if newStartTime != nil && newEndTime != nil {
+			if newEndTime.Before(*newStartTime) {
+				h.respondWithError(w, http.StatusBadRequest, "end_time must be after start_time")
+				return
+			}
+			// If times are provided, force type to 'scheduled'
+			t := "scheduled"
+			newType = &t
+
+			h.logger.Info("Updating schedule details", map[string]interface{}{
+				"schedule_id": scheduleID,
+				"new_type":    *newType,
+				"new_start":   *newStartTime,
+				"new_end":     *newEndTime,
+			})
+
+			if err := h.repo.UpdateScheduleDetails(ctx, scheduleID, newStartTime, newEndTime, newType); err != nil {
+				h.logger.Error("Failed to update schedule details", map[string]interface{}{
+					"error": err.Error(),
+				})
+				h.respondWithError(w, http.StatusInternalServerError, "Failed to update schedule details")
+				return
+			}
+		} else {
+			h.logger.Info("Skipping schedule details update", map[string]interface{}{
+				"has_start": newStartTime != nil,
+				"has_end":   newEndTime != nil,
+			})
+		}
 
 		if err := h.repo.UpdateApprovalStatus(ctx, scheduleID, models.ApprovalStatusApproved, nil, &userID); err != nil {
 			h.logger.Error("Failed to approve schedule", map[string]interface{}{
@@ -268,14 +368,28 @@ func (h *ScheduleHandler) HandleApproveSchedule() http.HandlerFunc {
 			return
 		}
 
-		// Also set status to active if start time is now or past
-		// Ideally a background job handles this, but for immediate effect:
-		// We'll just set it to active for now if it's approved.
-		// Real implementation should check time.
-		if err := h.repo.UpdateStatus(ctx, scheduleID, models.ScheduleStatusActive); err != nil {
-			h.logger.Error("Failed to activate schedule", map[string]interface{}{
+		// Fetch updated schedule to check start time and type
+		updatedSchedule, err := h.repo.GetByID(ctx, scheduleID)
+		if err != nil {
+			h.logger.Error("Failed to fetch updated schedule", map[string]interface{}{
 				"error": err.Error(),
 			})
+			// Continue but log error
+		} else {
+			now := time.Now()
+			newStatus := models.ScheduleStatusPending
+
+			// If start time is now or in the past, OR if it's standing access, set status to active
+			if updatedSchedule.Type == "standing" || updatedSchedule.StartTime.Before(now) || updatedSchedule.StartTime.Equal(now) {
+				newStatus = models.ScheduleStatusActive
+			}
+
+			if err := h.repo.UpdateStatus(ctx, scheduleID, newStatus); err != nil {
+				h.logger.Error("Failed to update schedule status", map[string]interface{}{
+					"error":  err.Error(),
+					"status": newStatus,
+				})
+			}
 		}
 
 		h.logger.Info("Schedule approved", map[string]interface{}{
@@ -345,6 +459,49 @@ func (h *ScheduleHandler) HandleRejectSchedule() http.HandlerFunc {
 		response := map[string]interface{}{
 			"success": true,
 			"message": "Schedule rejected successfully",
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}
+}
+
+// HandleDeleteSchedule handles schedule deletion (Admin only)
+func (h *ScheduleHandler) HandleDeleteSchedule() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		userIDStr := middleware.GetUserID(ctx)
+
+		if r.Method != http.MethodDelete {
+			h.respondWithError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+
+		// Extract ID from URL path: /api/v1/schedules/{id}
+		idStr := r.URL.Path[len("/api/v1/schedules/"):]
+
+		scheduleID, err := uuid.Parse(idStr)
+		if err != nil {
+			h.respondWithError(w, http.StatusBadRequest, "Invalid schedule_id")
+			return
+		}
+
+		if err := h.repo.Delete(ctx, scheduleID); err != nil {
+			h.logger.Error("Failed to delete schedule", map[string]interface{}{
+				"error": err.Error(),
+			})
+			h.respondWithError(w, http.StatusInternalServerError, "Failed to delete schedule")
+			return
+		}
+
+		h.logger.Info("Schedule deleted", map[string]interface{}{
+			"schedule_id": scheduleID,
+			"deleted_by":  userIDStr,
+		})
+
+		response := map[string]interface{}{
+			"success": true,
+			"message": "Schedule deleted successfully",
 		}
 
 		w.Header().Set("Content-Type", "application/json")
