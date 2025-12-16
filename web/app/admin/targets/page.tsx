@@ -6,7 +6,6 @@ import { Target, Zone } from '@/types'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import Header from '@/components/header'
 
 export default function TargetsPage() {
   const { user, loading } = useAuth()
@@ -88,14 +87,13 @@ export default function TargetsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header />
+    <div className="min-h-screen bg-background">
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Targets</h1>
-            <p className="text-sm text-gray-600 mt-1">Manage SSH and RDP targets</p>
+            <h1 className="text-2xl font-bold text-foreground">Targets</h1>
+            <p className="text-sm text-muted-foreground mt-1">Manage SSH and RDP targets</p>
           </div>
           <button
             onClick={() => setShowModal(true)}
@@ -106,34 +104,34 @@ export default function TargetsPage() {
         </div>
 
         {loadingTargets ? (
-          <div className="text-center py-12"><p className="text-gray-500">Loading...</p></div>
+          <div className="text-center py-12"><p className="text-muted-foreground">Loading...</p></div>
         ) : targets.length === 0 ? (
-          <div className="text-center py-12"><p className="text-gray-500">No targets found</p></div>
+          <div className="text-center py-12"><p className="text-muted-foreground">No targets found</p></div>
         ) : (
-          <div className="bg-white shadow rounded-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+          <div className="bg-card shadow rounded-lg overflow-hidden">
+            <table className="min-w-full divide-y divide-border">
+              <thead className="bg-background">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hostname</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Protocol</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Port</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Hostname</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Protocol</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Port</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-card divide-y divide-border">
                 {targets.map((target) => (
                   <tr key={target.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{target.name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{target.hostname}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">{target.name}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{target.hostname}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 py-1 text-xs font-semibold rounded ${target.protocol === 'ssh' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
                         }`}>
                         {target.protocol.toUpperCase()}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{target.port}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{target.port}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 py-1 text-xs font-semibold rounded ${target.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                         }`}>
@@ -158,17 +156,17 @@ export default function TargetsPage() {
 
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-lg max-w-md w-full p-6 my-8">
+          <div className="bg-card rounded-lg max-w-md w-full p-6 my-8">
             <h3 className="text-lg font-semibold mb-4">Create Target</h3>
             <form onSubmit={handleSubmit}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Zone</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Zone</label>
                   <select
                     required
                     value={formData.zone_id}
                     onChange={(e) => setFormData({ ...formData, zone_id: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="w-full px-3 py-2 border border-input rounded-md"
                   >
                     <option value="">Select a zone</option>
                     {zones.map((zone) => (
@@ -177,27 +175,27 @@ export default function TargetsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Name</label>
                   <input
                     type="text"
                     required
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="w-full px-3 py-2 border border-input rounded-md"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Hostname</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Hostname</label>
                   <input
                     type="text"
                     required
                     value={formData.hostname}
                     onChange={(e) => setFormData({ ...formData, hostname: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="w-full px-3 py-2 border border-input rounded-md"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Protocol</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Protocol</label>
                   <select
                     value={formData.protocol}
                     onChange={(e) => setFormData({
@@ -205,14 +203,14 @@ export default function TargetsPage() {
                       protocol: e.target.value as 'ssh' | 'rdp',
                       port: e.target.value === 'ssh' ? 22 : 3389
                     })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="w-full px-3 py-2 border border-input rounded-md"
                   >
                     <option value="ssh">SSH</option>
                     <option value="rdp">RDP</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Port</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Port</label>
                   <input
                     type="number"
                     required
@@ -220,15 +218,15 @@ export default function TargetsPage() {
                     max="65535"
                     value={formData.port}
                     onChange={(e) => setFormData({ ...formData, port: parseInt(e.target.value) })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="w-full px-3 py-2 border border-input rounded-md"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Description</label>
                   <textarea
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="w-full px-3 py-2 border border-input rounded-md"
                     rows={3}
                   />
                 </div>
@@ -237,7 +235,7 @@ export default function TargetsPage() {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  className="flex-1 px-4 py-2 border border-input rounded-md text-foreground hover:bg-background"
                 >
                   Cancel
                 </button>

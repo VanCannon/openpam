@@ -42,8 +42,15 @@ func (h *Handler) CreateSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Extract createdBy from auth context
-	createdBy := r.Header.Get("X-User-ID")
+	// Extract createdBy from auth token
+	authHeader := r.Header.Get("Authorization")
+	createdBy := h.extractUserIDFromToken(authHeader)
+
+	h.logger.Info("CreateSchedule request", map[string]interface{}{
+		"auth_header_len": len(authHeader),
+		"created_by":      createdBy,
+		"user_id":         req.UserID,
+	})
 
 	result, err := h.service.CreateSchedule(&req, createdBy)
 	if err != nil {
@@ -155,7 +162,65 @@ func (h *Handler) ListSchedules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.jsonResponse(w, map[string]interface{}{
+		"schedules": result,
+	}, http.StatusOK)
+}
+
+func (h *Handler) ApproveSchedule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.errorResponse(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req schedule.ApproveScheduleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.errorResponse(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Extract approvedBy from auth token
+	authHeader := r.Header.Get("Authorization")
+	approvedBy := h.extractUserIDFromToken(authHeader)
+
+	result, err := h.service.ApproveSchedule(req.ScheduleID, approvedBy, nil, nil)
+	if err != nil {
+		h.logger.Error("Failed to approve schedule", map[string]interface{}{
+			"error": err.Error(),
+		})
+		h.errorResponse(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	h.jsonResponse(w, result, http.StatusOK)
+}
+
+func (h *Handler) RejectSchedule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.errorResponse(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req schedule.RejectScheduleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.errorResponse(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Extract rejectedBy from auth token
+	authHeader := r.Header.Get("Authorization")
+	rejectedBy := h.extractUserIDFromToken(authHeader)
+
+	err := h.service.RejectSchedule(req.ScheduleID, rejectedBy, req.Reason)
+	if err != nil {
+		h.logger.Error("Failed to reject schedule", map[string]interface{}{
+			"error": err.Error(),
+		})
+		h.errorResponse(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	h.jsonResponse(w, map[string]string{"status": "rejected"}, http.StatusOK)
 }
 
 func (h *Handler) CheckAccess(w http.ResponseWriter, r *http.Request) {

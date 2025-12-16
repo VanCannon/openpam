@@ -20,9 +20,9 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:    16384, // 16KB
-	WriteBufferSize:   16384, // 16KB
-	EnableCompression: false, // Disable compression - can interfere with Guacamole protocol
+	ReadBufferSize:    16384,                 // 16KB
+	WriteBufferSize:   16384,                 // 16KB
+	EnableCompression: false,                 // Disable compression - can interfere with Guacamole protocol
 	Subprotocols:      []string{"guacamole"}, // Support Guacamole WebSocket protocol
 	CheckOrigin: func(r *http.Request) bool {
 		// TODO: Implement proper origin checking in production
@@ -32,13 +32,14 @@ var upgrader = websocket.Upgrader{
 
 // ConnectionHandler handles WebSocket connection requests
 type ConnectionHandler struct {
-	vault      *vault.Client
-	targetRepo *repository.TargetRepository
-	credRepo   *repository.CredentialRepository
-	auditRepo  *repository.AuditLogRepository
-	sshProxy   *ssh.Proxy
-	rdpProxy   *rdp.Proxy
-	logger     *logger.Logger
+	vault        *vault.Client
+	targetRepo   *repository.TargetRepository
+	credRepo     *repository.CredentialRepository
+	auditRepo    *repository.AuditLogRepository
+	sshProxy     *ssh.Proxy
+	rdpProxy     *rdp.Proxy
+	logger       *logger.Logger
+	scheduleRepo *repository.ScheduleRepository
 }
 
 // NewConnectionHandler creates a new connection handler
@@ -50,15 +51,17 @@ func NewConnectionHandler(
 	sshProxy *ssh.Proxy,
 	rdpProxy *rdp.Proxy,
 	log *logger.Logger,
+	scheduleRepo *repository.ScheduleRepository,
 ) *ConnectionHandler {
 	return &ConnectionHandler{
-		vault:      vaultClient,
-		targetRepo: targetRepo,
-		credRepo:   credRepo,
-		auditRepo:  auditRepo,
-		sshProxy:   sshProxy,
-		rdpProxy:   rdpProxy,
-		logger:     log,
+		vault:        vaultClient,
+		targetRepo:   targetRepo,
+		credRepo:     credRepo,
+		auditRepo:    auditRepo,
+		sshProxy:     sshProxy,
+		rdpProxy:     rdpProxy,
+		logger:       log,
+		scheduleRepo: scheduleRepo,
 	}
 }
 
@@ -150,6 +153,77 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 			return
 		}
 
+		// Check for active schedule
+		// We need to find a schedule that is:
+		// 1. For this user
+		// 2. For this target
+		// 3. Status is Active
+		// 4. ApprovalStatus is Approved
+		// 5. Current time is between StartTime and EndTime
+		// Since List doesn't support complex time filtering, we'll fetch active schedules and filter in memory
+		// or rely on the fact that "Active" status implies it's currently valid (if the background job is running)
+		// But for safety, we should check time here too.
+
+		userUUID, err := uuid.Parse(userID)
+		if err != nil {
+			h.logger.Error("Invalid user ID", map[string]interface{}{
+				"error": err.Error(),
+			})
+			http.Error(w, "Invalid user ID", http.StatusInternalServerError)
+			return
+		}
+
+		// Filter by user, target, and Active status
+		activeStatus := models.ScheduleStatusActive
+		approvedStatus := models.ApprovalStatusApproved
+		schedules, err := h.scheduleRepo.List(ctx, &userUUID, &targetID, &activeStatus, &approvedStatus, nil)
+		if err != nil {
+			h.logger.Error("Failed to list schedules", map[string]interface{}{
+				"error": err.Error(),
+			})
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Check if any schedule is currently valid based on time
+		var validSchedule *models.Schedule
+		now := time.Now()
+		for _, s := range schedules {
+			if (s.StartTime.Before(now) || s.StartTime.Equal(now)) && s.EndTime.After(now) {
+				validSchedule = &s
+				break
+			}
+		}
+
+		// Also check for "Standing Access" (Type=standing) which might be Active
+		if validSchedule == nil {
+			standingType := "standing"
+			standingSchedules, err := h.scheduleRepo.List(ctx, &userUUID, &targetID, &activeStatus, &approvedStatus, &standingType)
+			if err == nil && len(standingSchedules) > 0 {
+				validSchedule = &standingSchedules[0]
+			}
+		}
+
+		// If user is admin, they bypass schedule check (optional, but good for emergency access)
+		// But the requirement says "Only Admins should be automatically approved", implying they still need a schedule, just auto-approved.
+		// So we should enforce schedule existence for everyone, but Admins get theirs auto-created/approved.
+		// However, if an Admin tries to connect WITHOUT creating a schedule first, should we allow it?
+		// For now, let's enforce schedule for everyone to be safe.
+		// If no valid schedule found:
+		if validSchedule == nil {
+			h.logger.Warn("No active schedule found for connection", map[string]interface{}{
+				"user":      userEmail,
+				"target_id": targetID.String(),
+			})
+			http.Error(w, "No active approved schedule found for this target", http.StatusForbidden)
+			return
+		}
+
+		h.logger.Info("Schedule validated", map[string]interface{}{
+			"schedule_id": validSchedule.ID,
+			"user":        userEmail,
+		})
+
 		// Get credentials for target
 		credentials, err := h.credRepo.GetByTargetID(ctx, targetID)
 		if err != nil || len(credentials) == 0 {
@@ -238,7 +312,7 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 		conn.SetWriteDeadline(time.Time{}) // No write deadline
 
 		// Create audit log entry
-		userUUID, _ := uuid.Parse(userID)
+		// userUUID already parsed above
 		auditLog := &models.AuditLog{
 			UserID:        userUUID,
 			TargetID:      targetID,

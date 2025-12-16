@@ -6,6 +6,30 @@ OpenPAM is a web-based Privileged Access Management tool designed to provide sec
 
 The system is evolving into a comprehensive PAM platform with an orchestrator-based microservices architecture, supporting advanced features including scheduling, automation, identity management, and multi-channel communications.
 
+## 1.1. Core Concepts & Definitions
+
+### Roles
+- **User**: The default role. Can run sessions (connect to targets) and view their own recorded sessions. Cannot see live or recorded sessions of others. Must be granted access to targets by Admins.
+- **Admin**: Full access to all OpenPAM functions (configuration, user/group/target management, credentials, live/recorded sessions). Can specify what Auditors can see.
+- **Auditor**: A User with additional privileges to watch live and recorded sessions of others. Scope of access (specific users, resources, or combinations) is defined by Admins.
+
+### Groups
+- **AD Groups**: Imported from Active Directory. Only direct members can login.
+- **Local Groups**: Created within OpenPAM from onboarded users. Used for assigning permissions and policies.
+
+### Targets
+- **Target**: A computer or device (RDP/SSH) to connect to. Can be manually created or discovered via AD sync.
+
+### Sessions
+- **Live Session**: An active RDP or SSH connection to a target.
+- **Scheduled Session**: Access granted for a specific time frame. Users request access, Admins approve/deny. Access is revoked and sessions terminated when the window ends.
+- **Standing Session**: Permanent access to specific targets for specific users, as determined by Admins. No time window; available whenever the user is logged in.
+
+### Account Types (Target Login)
+- **User Account Promotion**: The user's OpenPAM account is temporarily promoted (e.g., added to Domain Admins) during the live session and demoted afterwards.
+- **Managed Account**: An existing AD account that is disabled when not in use. The Activity Service enables it at the start of a session and disables it at the end.
+- **Ephemeral Account**: A temporary AD account created specifically for a single session (e.g., `user-date-suffix`) and deleted immediately after the session ends.
+
 2. High-Level Architecture
 
 ## Core Components
@@ -453,7 +477,27 @@ CREATE TABLE users (
     enabled BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    last_login_at TIMESTAMP WITH TIME ZONE
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_login_at TIMESTAMP WITH TIME ZONE,
+    role VARCHAR(50) NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin', 'auditor'))
+);
+
+-- Groups table: Local and AD groups
+CREATE TABLE groups (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL UNIQUE,
+    source VARCHAR(50) NOT NULL CHECK (source IN ('local', 'ad')),
+    ad_guid VARCHAR(255), -- If synced from AD
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- User Groups mapping
+CREATE TABLE user_groups (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, group_id)
 );
 
 -- Audit logs table: Records all connection sessions
@@ -497,7 +541,10 @@ CREATE TABLE schedules (
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    metadata JSONB
+    metadata JSONB,
+    type VARCHAR(50) NOT NULL DEFAULT 'scheduled' CHECK (type IN ('scheduled', 'standing')),
+    account_type VARCHAR(50) NOT NULL CHECK (account_type IN ('user_promotion', 'managed', 'ephemeral', 'static')),
+    account_details JSONB -- Stores managed account ID, ephemeral naming pattern, etc.
 );
 
 CREATE INDEX idx_schedules_user_id ON schedules(user_id);

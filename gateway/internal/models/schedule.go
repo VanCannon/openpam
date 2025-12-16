@@ -37,6 +37,10 @@ type Schedule struct {
 	RejectionReason *string        `json:"rejection_reason,omitempty" db:"rejection_reason"`
 	ApprovedBy      *uuid.UUID     `json:"approved_by,omitempty" db:"approved_by"`
 	ApprovedAt      *time.Time     `json:"approved_at,omitempty" db:"approved_at"`
+	Type            string         `json:"type" db:"type"`
+	AccountType     string         `json:"account_type" db:"account_type"`
+	AccountDetails  JSONB          `json:"account_details,omitempty" db:"account_details"`
+	ProvisionStatus string         `json:"provision_status" db:"provision_status"` // Added ProvisionStatus field
 }
 
 // JSONB is a wrapper for JSONB fields
@@ -49,9 +53,12 @@ func (j JSONB) Value() (driver.Value, error) {
 
 // Scan implements the sql.Scanner interface
 func (j *JSONB) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
 	b, ok := value.([]byte)
 	if !ok {
 		return errors.New("type assertion to []byte failed")
 	}
-	return json.Unmarshal(b, &j)
+	return json.Unmarshal(b, j)
 }

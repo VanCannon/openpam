@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
-import Header from '@/components/header'
 import { Button } from '@/components/ui/button'
 
 interface ADUser {
@@ -69,7 +68,7 @@ export default function IdentityPage() {
 
     useEffect(() => {
         if (!loading && (!user || user.role.toLowerCase() !== 'admin')) {
-            router.push('/dashboard')
+            router.push('/sessions')
         }
     }, [user, loading, router])
 
@@ -273,21 +272,20 @@ export default function IdentityPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            <Header />
+        <div className="min-h-screen bg-background">
 
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="mb-8 flex justify-between items-center">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-900">AD Synchronization</h1>
-                        <p className="text-gray-600 mt-2">Configure and manage Active Directory synchronization</p>
+                        <h1 className="text-3xl font-bold text-foreground">AD Synchronization</h1>
+                        <p className="text-muted-foreground mt-2">Configure and manage Active Directory synchronization</p>
                     </div>
                     <div className="flex items-center space-x-4">
                         <div className="text-sm text-right">
-                            <div className="text-gray-500">Last Sync: {lastSync || 'Never'}</div>
+                            <div className="text-muted-foreground">Last Sync: {lastSync || 'Never'}</div>
                             <div className={`font-medium ${syncStatus === 'success' ? 'text-green-600' :
                                 syncStatus === 'error' ? 'text-red-600' :
-                                    syncStatus === 'syncing' ? 'text-blue-600' : 'text-gray-600'
+                                    syncStatus === 'syncing' ? 'text-blue-600' : 'text-muted-foreground'
                                 }`}>
                                 {syncStatus === 'idle' ? 'Idle' :
                                     syncStatus.charAt(0).toUpperCase() + syncStatus.slice(1)}
@@ -299,25 +297,25 @@ export default function IdentityPage() {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
                     {/* Configuration Form */}
                     <div className="lg:col-span-2 space-y-6">
-                        <div className="bg-white shadow rounded-lg p-6">
-                            <h2 className="text-xl font-semibold text-gray-900 mb-4">Connection Settings</h2>
+                        <div className="bg-card shadow rounded-lg p-6">
+                            <h2 className="text-xl font-semibold text-foreground mb-4">Connection Settings</h2>
                             <form className="space-y-4" onSubmit={handleSaveConfig}>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700">Host</label>
+                                        <label className="block text-sm font-medium text-foreground">Host</label>
                                         <input
                                             type="text"
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                            className="mt-1 block w-full rounded-md border-input shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
                                             placeholder="dc.example.com"
                                             value={config.host}
                                             onChange={e => setConfig({ ...config, host: e.target.value })}
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700">Port</label>
+                                        <label className="block text-sm font-medium text-foreground">Port</label>
                                         <input
                                             type="number"
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                            className="mt-1 block w-full rounded-md border-input shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
                                             placeholder="389"
                                             value={config.port}
                                             onChange={e => setConfig({ ...config, port: parseInt(e.target.value) })}
@@ -326,10 +324,10 @@ export default function IdentityPage() {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Base DN</label>
+                                    <label className="block text-sm font-medium text-foreground">Base DN</label>
                                     <input
                                         type="text"
-                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                        className="mt-1 block w-full rounded-md border-input shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
                                         placeholder="DC=example,DC=com"
                                         value={config.base_dn}
                                         onChange={e => setConfig({ ...config, base_dn: e.target.value })}
@@ -337,10 +335,10 @@ export default function IdentityPage() {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Bind DN</label>
+                                    <label className="block text-sm font-medium text-foreground">Bind DN</label>
                                     <input
                                         type="text"
-                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                        className="mt-1 block w-full rounded-md border-input shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
                                         placeholder="CN=service,OU=Users,DC=example,DC=com"
                                         value={config.bind_dn}
                                         onChange={e => setConfig({ ...config, bind_dn: e.target.value })}
@@ -348,10 +346,10 @@ export default function IdentityPage() {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Bind Password</label>
+                                    <label className="block text-sm font-medium text-foreground">Bind Password</label>
                                     <input
                                         type="password"
-                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                        className="mt-1 block w-full rounded-md border-input shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
                                         placeholder="********"
                                         value={config.bind_password}
                                         onChange={e => setConfig({ ...config, bind_password: e.target.value })}
@@ -364,32 +362,32 @@ export default function IdentityPage() {
                             </form>
                         </div>
 
-                        <div className="bg-white shadow rounded-lg p-6">
-                            <h2 className="text-xl font-semibold text-gray-900 mb-4">Filters</h2>
+                        <div className="bg-card shadow rounded-lg p-6">
+                            <h2 className="text-xl font-semibold text-foreground mb-4">Filters</h2>
                             <form className="space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">User Filter</label>
+                                    <label className="block text-sm font-medium text-foreground">User Filter</label>
                                     <input
                                         type="text"
-                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                        className="mt-1 block w-full rounded-md border-input shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
                                         value={config.user_filter}
                                         onChange={e => setConfig({ ...config, user_filter: e.target.value })}
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Computer Filter</label>
+                                    <label className="block text-sm font-medium text-foreground">Computer Filter</label>
                                     <input
                                         type="text"
-                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                        className="mt-1 block w-full rounded-md border-input shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
                                         value={config.computer_filter}
                                         onChange={e => setConfig({ ...config, computer_filter: e.target.value })}
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Group Filter</label>
+                                    <label className="block text-sm font-medium text-foreground">Group Filter</label>
                                     <input
                                         type="text"
-                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                        className="mt-1 block w-full rounded-md border-input shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
                                         value={config.group_filter}
                                         onChange={e => setConfig({ ...config, group_filter: e.target.value })}
                                     />
@@ -403,20 +401,20 @@ export default function IdentityPage() {
 
                     {/* Sync Status and Schedule Side Panel */}
                     <div className="space-y-6">
-                        <div className="bg-white shadow rounded-lg p-6">
-                            <h2 className="text-xl font-semibold text-gray-900 mb-4">Sync Status</h2>
+                        <div className="bg-card shadow rounded-lg p-6">
+                            <h2 className="text-xl font-semibold text-foreground mb-4">Sync Status</h2>
 
                             <div className="space-y-4">
                                 <div className="flex justify-between items-center">
-                                    <span className="text-gray-600">Last Sync:</span>
+                                    <span className="text-muted-foreground">Last Sync:</span>
                                     <span className="font-medium">{lastSync || 'Never'}</span>
                                 </div>
 
                                 <div className="flex justify-between items-center">
-                                    <span className="text-gray-600">Status:</span>
+                                    <span className="text-muted-foreground">Status:</span>
                                     <span className={`font-medium ${syncStatus === 'success' ? 'text-green-600' :
                                         syncStatus === 'error' ? 'text-red-600' :
-                                            syncStatus === 'syncing' ? 'text-blue-600' : 'text-gray-600'
+                                            syncStatus === 'syncing' ? 'text-blue-600' : 'text-muted-foreground'
                                         }`}>
                                         {syncStatus.charAt(0).toUpperCase() + syncStatus.slice(1)}
                                     </span>
@@ -435,30 +433,30 @@ export default function IdentityPage() {
                             </div>
                         </div>
 
-                        <div className="bg-white shadow rounded-lg p-6">
-                            <h2 className="text-xl font-semibold text-gray-900 mb-4">Schedule</h2>
+                        <div className="bg-card shadow rounded-lg p-6">
+                            <h2 className="text-xl font-semibold text-foreground mb-4">Schedule</h2>
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-gray-700">Daily Sync</span>
+                                    <span className="text-foreground">Daily Sync</span>
                                     <div className="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                                        <input type="checkbox" name="toggle" id="toggle" className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
+                                        <input type="checkbox" name="toggle" id="toggle" className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-card border-4 appearance-none cursor-pointer" />
                                         <label htmlFor="toggle" className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
                                     </div>
                                 </div>
-                                <p className="text-sm text-gray-500">Automatically sync every day at 00:00 UTC</p>
+                                <p className="text-sm text-muted-foreground">Automatically sync every day at 00:00 UTC</p>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 {/* Tabs and Actions */}
-                <div className="flex justify-between items-end border-b border-gray-200 mb-6">
+                <div className="flex justify-between items-end border-b border-border mb-6">
                     <nav className="-mb-px flex space-x-8">
                         <button
                             onClick={() => setActiveTab('users')}
                             className={`${activeTab === 'users'
                                 ? 'border-indigo-500 text-indigo-600'
-                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                : 'border-transparent text-muted-foreground hover:text-foreground hover:border-input'
                                 } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
                         >
                             AD Users ({adUsers.length})
@@ -467,7 +465,7 @@ export default function IdentityPage() {
                             onClick={() => setActiveTab('computers')}
                             className={`${activeTab === 'computers'
                                 ? 'border-indigo-500 text-indigo-600'
-                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                : 'border-transparent text-muted-foreground hover:text-foreground hover:border-input'
                                 } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
                         >
                             AD Devices ({adComputers.length})
@@ -476,7 +474,7 @@ export default function IdentityPage() {
                             onClick={() => setActiveTab('groups')}
                             className={`${activeTab === 'groups'
                                 ? 'border-indigo-500 text-indigo-600'
-                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                : 'border-transparent text-muted-foreground hover:text-foreground hover:border-input'
                                 } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
                         >
                             AD Groups ({adGroups.length})
@@ -519,46 +517,46 @@ export default function IdentityPage() {
 
                 {/* Tab Content */}
                 {activeTab === 'users' && (
-                    <div className="bg-white shadow rounded-lg overflow-hidden">
+                    <div className="bg-card shadow rounded-lg overflow-hidden">
                         <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
+                            <table className="min-w-full divide-y divide-border">
+                                <thead className="bg-background">
                                     <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                                             <input
                                                 type="checkbox"
-                                                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                                className="rounded border-input text-indigo-600 focus:ring-indigo-500"
                                                 checked={adUsers.length > 0 && selectedUsers.size === adUsers.length}
                                                 onChange={handleSelectAll}
                                             />
                                         </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Display Name</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SAM Account</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UPN</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">OU</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Password</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Sync</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Display Name</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">SAM Account</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">UPN</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Email</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">OU</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Password</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Last Sync</th>
                                     </tr>
                                 </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
+                                <tbody className="bg-card divide-y divide-border">
                                     {adUsers.map((user) => (
                                         <tr key={user.id}>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <input
                                                     type="checkbox"
-                                                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                                    className="rounded border-input text-indigo-600 focus:ring-indigo-500"
                                                     checked={selectedUsers.has(user.id)}
                                                     onChange={() => handleSelectUser(user.id)}
                                                 />
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{user.display_name}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.sam_account_name}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.user_principal_name}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.mail}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.ou}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">{user.display_name}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{user.sam_account_name}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{user.user_principal_name}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{user.mail}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{user.ou}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                                                 <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${user.status === 'Active' ? 'bg-green-100 text-green-800' :
                                                     user.status === 'Disabled' ? 'bg-gray-100 text-gray-800' :
                                                         'bg-red-100 text-red-800'
@@ -566,13 +564,13 @@ export default function IdentityPage() {
                                                     {user.status}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.password_status}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(user.last_sync).toLocaleString()}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{user.password_status}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{new Date(user.last_sync).toLocaleString()}</td>
                                         </tr>
                                     ))}
                                     {adUsers.length === 0 && (
                                         <tr>
-                                            <td colSpan={9} className="px-6 py-4 text-center text-sm text-gray-500">No AD users found. Run a sync to populate.</td>
+                                            <td colSpan={9} className="px-6 py-4 text-center text-sm text-muted-foreground">No AD users found. Run a sync to populate.</td>
                                         </tr>
                                     )}
                                 </tbody>
@@ -582,47 +580,47 @@ export default function IdentityPage() {
                 )}
 
                 {activeTab === 'computers' && (
-                    <div className="bg-white shadow rounded-lg overflow-hidden">
+                    <div className="bg-card shadow rounded-lg overflow-hidden">
                         <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
+                            <table className="min-w-full divide-y divide-border">
+                                <thead className="bg-background">
                                     <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                                             <input
                                                 type="checkbox"
-                                                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                                className="rounded border-input text-indigo-600 focus:ring-indigo-500"
                                                 checked={adComputers.length > 0 && selectedComputers.size === adComputers.length}
                                                 onChange={handleSelectAll}
                                             />
                                         </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">DNS Hostname</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">OS</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">OS Version</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Sync</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Name</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">DNS Hostname</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">OS</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">OS Version</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Last Sync</th>
                                     </tr>
                                 </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
+                                <tbody className="bg-card divide-y divide-border">
                                     {adComputers.map((computer) => (
                                         <tr key={computer.id}>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <input
                                                     type="checkbox"
-                                                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                                    className="rounded border-input text-indigo-600 focus:ring-indigo-500"
                                                     checked={selectedComputers.has(computer.id)}
                                                     onChange={() => handleSelectComputer(computer.id)}
                                                 />
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{computer.name}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{computer.dns_host_name}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{computer.operating_system}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{computer.operating_system_version}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(computer.last_sync).toLocaleString()}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">{computer.name}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{computer.dns_host_name}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{computer.operating_system}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{computer.operating_system_version}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{new Date(computer.last_sync).toLocaleString()}</td>
                                         </tr>
                                     ))}
                                     {adComputers.length === 0 && (
                                         <tr>
-                                            <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">No AD devices found. Run a sync to populate.</td>
+                                            <td colSpan={6} className="px-6 py-4 text-center text-sm text-muted-foreground">No AD devices found. Run a sync to populate.</td>
                                         </tr>
                                     )}
                                 </tbody>
@@ -632,45 +630,45 @@ export default function IdentityPage() {
                 )}
 
                 {activeTab === 'groups' && (
-                    <div className="bg-white shadow rounded-lg overflow-hidden">
+                    <div className="bg-card shadow rounded-lg overflow-hidden">
                         <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
+                            <table className="min-w-full divide-y divide-border">
+                                <thead className="bg-background">
                                     <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                                             <input
                                                 type="checkbox"
-                                                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                                className="rounded border-input text-indigo-600 focus:ring-indigo-500"
                                                 checked={adGroups.length > 0 && selectedGroups.size === adGroups.length}
                                                 onChange={handleSelectAll}
                                             />
                                         </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Members</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Sync</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Name</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Description</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Members</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Last Sync</th>
                                     </tr>
                                 </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
+                                <tbody className="bg-card divide-y divide-border">
                                     {adGroups.map((group) => (
                                         <tr key={group.id}>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <input
                                                     type="checkbox"
-                                                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                                    className="rounded border-input text-indigo-600 focus:ring-indigo-500"
                                                     checked={selectedGroups.has(group.id)}
                                                     onChange={() => handleSelectGroup(group.id)}
                                                 />
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{group.name}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{group.description}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{group.member_count}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(group.last_sync).toLocaleString()}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">{group.name}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{group.description}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{group.member_count}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{new Date(group.last_sync).toLocaleString()}</td>
                                         </tr>
                                     ))}
                                     {adGroups.length === 0 && (
                                         <tr>
-                                            <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">No AD groups found. Run a sync to populate.</td>
+                                            <td colSpan={5} className="px-6 py-4 text-center text-sm text-muted-foreground">No AD groups found. Run a sync to populate.</td>
                                         </tr>
                                     )}
                                 </tbody>
@@ -683,13 +681,13 @@ export default function IdentityPage() {
             {/* Import Role Modal */}
             {showImportModal && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-                        <h2 className="text-xl font-bold text-gray-900 mb-4">
+                    <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4">
+                        <h2 className="text-xl font-bold text-foreground mb-4">
                             {activeTab === 'users' ? 'Add Users to OpenPAM' :
                                 activeTab === 'groups' ? 'Add Groups to OpenPAM' :
                                     'Add Devices to OpenPAM'}
                         </h2>
-                        <p className="text-gray-600 mb-6">
+                        <p className="text-muted-foreground mb-6">
                             {activeTab === 'computers'
                                 ? `Select a zone for the ${selectedComputers.size} selected ${selectedComputers.size !== 1 ? 'devices' : 'device'}.`
                                 : `Select a role for the ${activeTab === 'users' ? selectedUsers.size : selectedGroups.size} selected ${activeTab === 'users' ? (selectedUsers.size !== 1 ? 'users' : 'user') : (selectedGroups.size !== 1 ? 'groups' : 'group')}.`
@@ -699,12 +697,12 @@ export default function IdentityPage() {
                         <div className="space-y-3 mb-6">
                             {activeTab === 'computers' ? (
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Zone</label>
+                                    <label className="block text-sm font-medium text-foreground mb-1">Zone</label>
                                     {zones.length > 0 ? (
                                         <select
                                             value={importZone}
                                             onChange={(e) => setImportZone(e.target.value)}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                            className="w-full px-3 py-2 border border-input rounded-md"
                                         >
                                             {zones.map((zone) => (
                                                 <option key={zone.id} value={zone.id}>{zone.name}</option>
@@ -727,9 +725,9 @@ export default function IdentityPage() {
                                                 value={role}
                                                 checked={importRole === role}
                                                 onChange={(e) => setImportRole(e.target.value)}
-                                                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                                                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-input"
                                             />
-                                            <label htmlFor={role} className="ml-3 block text-sm font-medium text-gray-700 capitalize">
+                                            <label htmlFor={role} className="ml-3 block text-sm font-medium text-foreground capitalize">
                                                 {role}
                                             </label>
                                         </div>
@@ -742,9 +740,9 @@ export default function IdentityPage() {
                                             value="managed"
                                             checked={importRole === 'managed'}
                                             onChange={(e) => setImportRole(e.target.value)}
-                                            className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                                            className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-input"
                                         />
-                                        <label htmlFor="managed" className="ml-3 block text-sm font-medium text-gray-700">
+                                        <label htmlFor="managed" className="ml-3 block text-sm font-medium text-foreground">
                                             Managed Account (No Login)
                                         </label>
                                     </div>

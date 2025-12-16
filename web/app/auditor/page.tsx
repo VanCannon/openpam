@@ -4,7 +4,6 @@ import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { AuditLog, User, Target, Credential } from '@/types'
-import Header from '@/components/header'
 import { api } from '@/lib/api'
 import type { Terminal as XTerm } from '@xterm/xterm'
 import type { FitAddon } from '@xterm/addon-fit'
@@ -37,7 +36,7 @@ export default function AuditorPage() {
 
     useEffect(() => {
         if (!loading && (!user || (user.role !== 'auditor' && user.role !== 'admin'))) {
-            router.push('/dashboard')
+            router.push('/sessions')
         }
     }, [user, loading, router])
 
@@ -467,9 +466,9 @@ export default function AuditorPage() {
             : ''
 
         return userName.includes(searchLower) ||
-               targetName.includes(searchLower) ||
-               credUsername.includes(searchLower) ||
-               session.id.toLowerCase().includes(searchLower)
+            targetName.includes(searchLower) ||
+            credUsername.includes(searchLower) ||
+            session.id.toLowerCase().includes(searchLower)
     })
 
     if (loading || (!user || (user.role !== 'auditor' && user.role !== 'admin'))) {
@@ -477,22 +476,21 @@ export default function AuditorPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            <Header />
+        <div className="min-h-screen bg-background">
             <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
                 {/* Header */}
                 <div className="mb-8">
                     <div className="flex justify-between items-center mb-4">
                         <div>
-                            <h1 className="text-3xl font-bold text-gray-900">Session Audit</h1>
-                            <p className="mt-2 text-gray-600">Monitor and review all sessions with live playback</p>
+                            <h1 className="text-3xl font-bold text-foreground">Session Audit</h1>
+                            <p className="mt-2 text-muted-foreground">Monitor and review all sessions with live playback</p>
                         </div>
                         <div className="flex space-x-2">
                             <button
                                 onClick={() => setFilter('all')}
                                 className={`px-4 py-2 rounded-lg transition-colors ${filter === 'all'
                                     ? 'bg-indigo-600 text-white'
-                                    : 'bg-gray-200 text-gray-700'
+                                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
                                     }`}
                             >
                                 All Sessions
@@ -501,7 +499,7 @@ export default function AuditorPage() {
                                 onClick={() => setFilter('active')}
                                 className={`px-4 py-2 rounded-lg transition-colors ${filter === 'active'
                                     ? 'bg-indigo-600 text-white'
-                                    : 'bg-gray-200 text-gray-700'
+                                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
                                     }`}
                             >
                                 Active ({sessions.filter(s => s.session_status === 'active').length})
@@ -510,7 +508,7 @@ export default function AuditorPage() {
                                 onClick={() => setFilter('completed')}
                                 className={`px-4 py-2 rounded-lg transition-colors ${filter === 'completed'
                                     ? 'bg-indigo-600 text-white'
-                                    : 'bg-gray-200 text-gray-700'
+                                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
                                     }`}
                             >
                                 Completed
@@ -525,7 +523,7 @@ export default function AuditorPage() {
                             placeholder="Search by user, resource, or account..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="w-full px-4 py-2 pl-10 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         />
                         <svg
                             className="absolute left-3 top-2.5 h-5 w-5 text-gray-400"
@@ -541,17 +539,17 @@ export default function AuditorPage() {
                 <div className="flex gap-0">
                     {/* Sessions List */}
                     <div style={{ width: `${leftPanelWidth}px`, minWidth: '300px', maxWidth: '800px' }}>
-                        <div className="bg-white shadow-md rounded-lg overflow-hidden">
-                            <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
-                                <h2 className="text-lg font-semibold text-gray-900">Sessions</h2>
+                        <div className="bg-card shadow-md rounded-lg overflow-hidden">
+                            <div className="px-4 py-3 bg-background border-b border-border">
+                                <h2 className="text-lg font-semibold text-foreground">Sessions</h2>
                             </div>
-                            <div className="divide-y divide-gray-200 max-h-[calc(100vh-300px)] overflow-y-auto">
+                            <div className="divide-y divide-border max-h-[calc(100vh-300px)] overflow-y-auto">
                                 {loadingSessions ? (
-                                    <div className="px-4 py-8 text-center text-gray-500">
+                                    <div className="px-4 py-8 text-center text-muted-foreground">
                                         Loading sessions...
                                     </div>
                                 ) : filteredSessions.length === 0 ? (
-                                    <div className="px-4 py-8 text-center text-gray-500">
+                                    <div className="px-4 py-8 text-center text-muted-foreground">
                                         {searchTerm ? 'No sessions match your search' : 'No sessions found'}
                                     </div>
                                 ) : (
@@ -570,7 +568,7 @@ export default function AuditorPage() {
                                             <div
                                                 key={session.id}
                                                 onClick={() => handleSelectSession(session)}
-                                                className={`px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${isSelected ? 'bg-indigo-50 border-l-4 border-indigo-600' : ''
+                                                className={`px-4 py-3 cursor-pointer hover:bg-background transition-colors ${isSelected ? 'bg-indigo-50 border-l-4 border-indigo-600' : ''
                                                     }`}
                                             >
                                                 <div className="flex items-start justify-between">
@@ -581,13 +579,13 @@ export default function AuditorPage() {
                                                                 {session.protocol?.toUpperCase() || 'SSH'}
                                                             </span>
                                                         </div>
-                                                        <p className="text-sm font-semibold text-gray-900 truncate" title={userName}>
+                                                        <p className="text-sm font-semibold text-foreground truncate" title={userName}>
                                                             User: {userName}
                                                         </p>
-                                                        <p className="text-xs text-gray-600 truncate mt-1" title={accountName}>
+                                                        <p className="text-xs text-muted-foreground truncate mt-1" title={accountName}>
                                                             Account: {accountName}
                                                         </p>
-                                                        <p className="text-xs text-gray-600 truncate" title={targetName}>
+                                                        <p className="text-xs text-muted-foreground truncate" title={targetName}>
                                                             Resource: {targetName}
                                                         </p>
                                                         <p className="text-xs text-gray-400 mt-2">
@@ -623,16 +621,16 @@ export default function AuditorPage() {
 
                     {/* Terminal Viewer */}
                     <div className="flex-1 ml-6">
-                        <div ref={viewerContainerRef} className={`bg-white shadow-md rounded-lg overflow-hidden ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
-                            <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+                        <div ref={viewerContainerRef} className={`bg-card shadow-md rounded-lg overflow-hidden ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
+                            <div className="px-4 py-3 bg-background border-b border-border flex justify-between items-center">
                                 <div>
-                                    <h2 className="text-lg font-semibold text-gray-900">
+                                    <h2 className="text-lg font-semibold text-foreground">
                                         {selectedSession ? (
                                             <>
                                                 {selectedSession.session_status === 'active' ? 'Live Monitor' : 'Session Replay'}
                                                 {selectedSession.session_status === 'active' && (
                                                     <span className="ml-3 inline-flex items-center gap-2 px-3 py-1 text-sm font-semibold text-white bg-red-600 rounded-full animate-pulse">
-                                                        <span className="w-2 h-2 bg-white rounded-full"></span>
+                                                        <span className="w-2 h-2 bg-card rounded-full"></span>
                                                         LIVE
                                                     </span>
                                                 )}
@@ -640,7 +638,7 @@ export default function AuditorPage() {
                                         ) : 'Select a session to view'}
                                     </h2>
                                     {selectedSession && (
-                                        <p className="text-xs text-gray-500 mt-1">
+                                        <p className="text-xs text-muted-foreground mt-1">
                                             Session ID: {selectedSession.id} | Started: {new Date(selectedSession.start_time).toLocaleString()}
                                         </p>
                                     )}
@@ -649,7 +647,7 @@ export default function AuditorPage() {
                                     <div className="flex items-center gap-2">
                                         <button
                                             onClick={toggleFullscreen}
-                                            className="text-gray-400 hover:text-gray-600"
+                                            className="text-gray-400 hover:text-muted-foreground"
                                             title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
                                         >
                                             {isFullscreen ? (
@@ -664,7 +662,7 @@ export default function AuditorPage() {
                                         </button>
                                         <button
                                             onClick={() => setSelectedSession(null)}
-                                            className="text-gray-400 hover:text-gray-600"
+                                            className="text-gray-400 hover:text-muted-foreground"
                                             title="Close viewer"
                                         >
                                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -695,7 +693,7 @@ export default function AuditorPage() {
                                     )}
                                 </div>
                             ) : (
-                                <div className="flex flex-col items-center justify-center h-[calc(100vh-300px)] text-gray-500">
+                                <div className="flex flex-col items-center justify-center h-[calc(100vh-300px)] text-muted-foreground">
                                     <svg className="w-16 h-16 mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                     </svg>

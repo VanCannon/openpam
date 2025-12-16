@@ -9,7 +9,6 @@ import type { Terminal as XTerm } from '@xterm/xterm'
 import type { FitAddon } from '@xterm/addon-fit'
 import type { AuditLog } from '@/types'
 import '@xterm/xterm/css/xterm.css'
-import Header from '@/components/header'
 
 export default function SessionPlayerPage() {
     const { user, loading } = useAuth()
@@ -211,22 +210,21 @@ export default function SessionPlayerPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col">
-            <Header />
+        <div className="min-h-screen bg-background flex flex-col">
 
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
                 <div className="mb-6 flex items-center justify-between">
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                        <h1 className="text-2xl font-bold text-foreground flex items-center gap-3">
                             {isLive ? 'Live Session Monitor' : 'Session Replay'}
                             {isLive && (
                                 <span className="inline-flex items-center gap-2 px-3 py-1 text-sm font-semibold text-white bg-red-600 rounded-full animate-pulse">
-                                    <span className="w-2 h-2 bg-white rounded-full"></span>
+                                    <span className="w-2 h-2 bg-card rounded-full"></span>
                                     LIVE
                                 </span>
                             )}
                         </h1>
-                        <p className="text-sm text-gray-600 mt-1">
+                        <p className="text-sm text-muted-foreground mt-1">
                             Session ID: {params.id}
                             {session && (
                                 <span className="ml-4">

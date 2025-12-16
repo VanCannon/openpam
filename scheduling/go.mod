@@ -1,4 +1,4 @@
-module openpam/scheduling
+module github.com/VanCannon/openpam/scheduling
 
 go 1.21
 
@@ -12,6 +12,7 @@ require (
 )
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/fatih/color v1.14.1 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect

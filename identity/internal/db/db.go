@@ -102,9 +102,52 @@ type Group struct {
 	Name        string `json:"name"`
 	DN          string `json:"dn"`
 	Description string `json:"description"`
-	Role        string `json:"role"`
 	Source      string `json:"source"`
 	CreatedAt   string `json:"created_at"`
+}
+
+// ...
+
+func SaveGroups(groups []Group) error {
+	stmt, err := DB.Prepare(`
+		INSERT INTO groups (id, name, dn, description, source)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (id) DO UPDATE SET
+		name = EXCLUDED.name,
+		dn = EXCLUDED.dn,
+		description = EXCLUDED.description,
+		source = EXCLUDED.source
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, g := range groups {
+		_, err := stmt.Exec(g.ID, g.Name, g.DN, g.Description, g.Source)
+		if err != nil {
+			log.Printf("Failed to save group %s: %v", g.Name, err)
+		}
+	}
+	return nil
+}
+
+func GetGroups() ([]Group, error) {
+	rows, err := DB.Query(`SELECT id, name, dn, description, source, created_at FROM groups`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var groups []Group
+	for rows.Next() {
+		var g Group
+		if err := rows.Scan(&g.ID, &g.Name, &g.DN, &g.Description, &g.Source, &g.CreatedAt); err != nil {
+			return nil, err
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
 }
 
 type Target struct {
@@ -551,49 +594,6 @@ func GetADGroups() ([]ADGroup, error) {
 	for rows.Next() {
 		var g ADGroup
 		if err := rows.Scan(&g.ID, &g.DN, &g.Name, &g.Description, &g.MemberCount, &g.LastSync); err != nil {
-			return nil, err
-		}
-		groups = append(groups, g)
-	}
-	return groups, nil
-}
-
-func SaveGroups(groups []Group) error {
-	stmt, err := DB.Prepare(`
-		INSERT INTO groups (id, name, dn, description, role, source)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (id) DO UPDATE SET
-		name = EXCLUDED.name,
-		dn = EXCLUDED.dn,
-		description = EXCLUDED.description,
-		role = EXCLUDED.role,
-		source = EXCLUDED.source
-	`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	for _, g := range groups {
-		_, err := stmt.Exec(g.ID, g.Name, g.DN, g.Description, g.Role, g.Source)
-		if err != nil {
-			log.Printf("Failed to save group %s: %v", g.Name, err)
-		}
-	}
-	return nil
-}
-
-func GetGroups() ([]Group, error) {
-	rows, err := DB.Query(`SELECT id, name, dn, description, role, source, created_at FROM groups`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var groups []Group
-	for rows.Next() {
-		var g Group
-		if err := rows.Scan(&g.ID, &g.Name, &g.DN, &g.Description, &g.Role, &g.Source, &g.CreatedAt); err != nil {
 			return nil, err
 		}
 		groups = append(groups, g)

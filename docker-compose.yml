@@ -39,7 +39,15 @@ services:
       - "4822:4822"
     environment:
       - GUACD_LOG_LEVEL=debug
+    dns:
+      - 192.168.10.184
     command: ["-L", "debug", "-b", "0.0.0.0"]
+
+  nats:
+    image: nats:2.10
+    container_name: openpam-nats
+    ports:
+      - "4222:4222"
 
   orchestrator:
     build: ./orchestrator
@@ -47,11 +55,11 @@ services:
     ports:
       - "8090:8090"
     environment:
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_USER=openpam
-      - POSTGRES_PASSWORD=openpam
-      - POSTGRES_DB=openpam
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=openpam
+      - DB_PASSWORD=openpam
+      - DB_NAME=openpam
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,8 +84,37 @@ services:
     container_name: openpam-scheduling
     ports:
       - "8081:8081"
+    environment:
+      - DB_HOST=postgres
+      - DB_PASSWORD=openpam
+      - NATS_URL=nats://nats:4222
     depends_on:
       orchestrator:
+        condition: service_started
+      nats:
+        condition: service_started
+
+  gateway:
+    build: ./gateway
+    container_name: openpam-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=openpam
+      - DB_PASSWORD=openpam
+      - DB_NAME=openpam
+      - NATS_URL=nats://nats:4222
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=dev-root-token
+      - DEV_MODE=true
+      - IDENTITY_URL=http://identity:8082
+      - ORCHESTRATOR_URL=http://orchestrator:8090
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
         condition: service_started
 
 volumes:

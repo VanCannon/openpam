@@ -23,107 +23,86 @@ OpenPAM consists of several key components:
 
 See [docs/architecture.md](docs/architecture.md) for detailed architecture documentation.
 
-## Quick Start
+## Getting Started
 
-### Development Mode (Fastest)
+### Development Setup (Recommended)
 
-For quick local testing without EntraID or Vault configuration:
-
-```bash
-# 1. Start services
-docker-compose up -d postgres vault
-
-# 2. Run migrations
-cd gateway && go run cmd/migrate/main.go
-
-# 3. Use development config
-cp gateway/.env.dev gateway/.env
-
-# 4. Start backend
-go run cmd/server/main.go
-
-# 5. Start frontend (in another terminal)
-cd web && npm install && npm run dev
-```
-
-Visit http://localhost:3000 and click "Sign in with Microsoft" - you'll be auto-logged in!
-
-See [docs/development.md](docs/development.md) for detailed development mode guide.
-
-### RDP Connections
-
-To enable RDP connections, you'll also need guacd:
+The fastest way to get up and running is using Docker Compose. This will start all services including the Gateway, PostgreSQL, Vault, and the Frontend.
 
 ```bash
-# Start guacd daemon for RDP
-docker-compose up -d guacd
+# Start all services
+make dev-up
+# OR
+docker compose up -d
 ```
 
-RDP connections are fully browser-based using Apache Guacamole with:
-- Mouse and keyboard input
-- Dynamic resolution adjustment (automatically resizes to match browser window)
-- Clipboard support (optional)
-- Full session recording capability
+Once started, the services will be available at:
+- **Web Interface**: http://localhost:3000 (Auto-login enabled in dev mode)
+- **Gateway API**: http://localhost:8080
+- **Vault UI**: http://localhost:8200
+
+### Hybrid Development (Local Gateway)
+
+If you want to run the Gateway locally for development (e.g. to use a debugger or for faster iteration), follow these steps:
+
+```bash
+# 1. Start dependencies (Postgres, Vault, NATS, Guacd)
+# We exclude the gateway service so we can run it locally
+docker compose up -d postgres vault nats guacd
+
+# 2. Run database migrations
+make migrate-up
+
+# 3. Start the Gateway locally
+# This uses the .env.dev configuration automatically
+make gateway-dev
+```
 
 ### Production Setup
 
-### Prerequisites
+For production deployments, you should run the binary directly and configure it using environment variables.
 
-- Go 1.22+
-- Node.js 18+
-- Docker and Docker Compose
-- Make
+#### 1. Prerequisites
+
+- PostgreSQL 16+
+- HashiCorp Vault 1.15+
 - Microsoft EntraID (Azure AD) tenant
 
-### 1. Start Development Environment
+#### 2. Build the Gateway
 
 ```bash
-# Start PostgreSQL and Vault
-make dev-up
-
-# Run database migrations
-make migrate-up
+make build
+# Binary will be at bin/openpam-gateway
 ```
 
-### 2. Configure Environment
+#### 3. Configure Environment
 
 ```bash
 # Copy example environment file
 cp gateway/.env.example gateway/.env
 
 # Edit .env with your production settings
-# For dev, defaults should work with Docker Compose
+# You must set:
+# - DB_HOST, DB_USER, DB_PASSWORD
+# - VAULT_ADDR, VAULT_ROLE_ID, VAULT_SECRET_ID
+# - ENTRA_TENANT_ID, ENTRA_CLIENT_ID, ENTRA_CLIENT_SECRET
 ```
 
-### 3. Initialize Vault (Development Only)
+#### 4. Run the Gateway
 
 ```bash
-# Set Vault address and token
-export VAULT_ADDR=http://localhost:8200
-export VAULT_TOKEN=dev-root-token
-
-# Enable KV v2 secrets engine
-vault secrets enable -version=2 kv
-
-# Create a test secret
-vault kv put kv/servers/server1 username=admin password=changeme
+./bin/openpam-gateway
 ```
 
-### 4. Run the Gateway
+### RDP Connections
 
-```bash
-make run
-```
+RDP connections are fully browser-based using Apache Guacamole. The `guacd` service is included in the docker-compose setup.
 
-The gateway will be available at `http://localhost:8080`
-
-### Available Endpoints
-
-- `GET /health` - Basic health check
-- `GET /ready` - Readiness check (includes DB and Vault)
-- `GET /api/v1/targets` - List available targets (not implemented)
-- `POST /api/v1/auth/login` - EntraID login (not implemented)
-- `WS /api/ws/connect/{protocol}/{target_id}` - WebSocket tunnel (not implemented)
+Features:
+- Mouse and keyboard input
+- Dynamic resolution adjustment (automatically resizes to match browser window)
+- Clipboard support (optional)
+- Full session recording capability
 
 ## Development
 

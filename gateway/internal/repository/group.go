@@ -18,7 +18,7 @@ func NewGroupRepository(db *database.DB) *GroupRepository {
 }
 
 func (r *GroupRepository) List(ctx context.Context) ([]models.Group, error) {
-	query := `SELECT id, name, COALESCE(dn, '') as dn, COALESCE(description, '') as description, role, source, created_at FROM groups`
+	query := `SELECT id, name, COALESCE(dn, '') as dn, COALESCE(ad_guid, '') as ad_guid, COALESCE(description, '') as description, source, created_at, updated_at FROM groups`
 
 	var groups []models.Group
 	err := r.db.SelectContext(ctx, &groups, query)
@@ -30,7 +30,7 @@ func (r *GroupRepository) List(ctx context.Context) ([]models.Group, error) {
 }
 
 func (r *GroupRepository) GetByDN(ctx context.Context, dn string) (*models.Group, error) {
-	query := `SELECT id, name, COALESCE(dn, '') as dn, COALESCE(description, '') as description, role, source, created_at FROM groups WHERE dn = $1`
+	query := `SELECT id, name, COALESCE(dn, '') as dn, COALESCE(ad_guid, '') as ad_guid, COALESCE(description, '') as description, source, created_at, updated_at FROM groups WHERE dn = $1`
 
 	var group models.Group
 	err := r.db.GetContext(ctx, &group, query, dn)

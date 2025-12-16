@@ -487,7 +487,6 @@ func ImportADGroup(w http.ResponseWriter, r *http.Request) {
 		Name:        targetGroup.Name,
 		DN:          targetGroup.DN,
 		Description: targetGroup.Description,
-		Role:        req.Role,
 		Source:      "active_directory",
 	}
 

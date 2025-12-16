@@ -649,7 +649,7 @@ func (h *AuthHandler) HandleDirectLogin() http.HandlerFunc {
 				h.logger.Info("Creating JIT user from group membership", map[string]interface{}{
 					"entra_id": authResp.User.EntraID,
 					"group":    allowedGroup.Name,
-					"role":     allowedGroup.Role,
+					"role":     models.RoleUser,
 				})
 
 				user, err = h.userRepo.GetOrCreate(ctx, authResp.User.EntraID, authResp.User.Email, authResp.User.DisplayName)
@@ -662,7 +662,7 @@ func (h *AuthHandler) HandleDirectLogin() http.HandlerFunc {
 				}
 
 				// Update role and source
-				user.Role = allowedGroup.Role
+				user.Role = models.RoleUser
 				user.Source = "active_directory"
 				h.userRepo.Update(ctx, user)
 			} else {

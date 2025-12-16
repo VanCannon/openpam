@@ -2,6 +2,8 @@
 
 import './globals.css'
 import { AuthProvider } from '@/lib/auth-context'
+import ClientLayout from '@/components/client-layout'
+import { ThemeProvider } from '@/components/theme-provider'
 
 export default function RootLayout({
   children,
@@ -12,7 +14,16 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body>
         <AuthProvider>
-          {children}
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="dark"
+            enableSystem
+            disableTransitionOnChange
+          >
+            <ClientLayout>
+              {children}
+            </ClientLayout>
+          </ThemeProvider>
         </AuthProvider>
       </body>
     </html>

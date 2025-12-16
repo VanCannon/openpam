@@ -21,6 +21,10 @@ type Schedule struct {
 	CreatedAt       time.Time              `json:"created_at"`
 	UpdatedAt       time.Time              `json:"updated_at"`
 	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+	Type            string                 `json:"type"`
+	AccountType     string                 `json:"account_type"`
+	AccountDetails  map[string]interface{} `json:"account_details,omitempty"`
+	ProvisionStatus string                 `json:"provision_status"`
 }
 
 type CreateScheduleRequest struct {
@@ -31,6 +35,9 @@ type CreateScheduleRequest struct {
 	RecurrenceRule *string                `json:"recurrence_rule,omitempty"`
 	Timezone       string                 `json:"timezone"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	Type           string                 `json:"type"`
+	AccountType    string                 `json:"account_type"`
+	AccountDetails map[string]interface{} `json:"account_details,omitempty"`
 }
 
 type UpdateScheduleRequest struct {

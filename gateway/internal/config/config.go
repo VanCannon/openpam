@@ -11,14 +11,20 @@ import (
 
 // Config holds all application configuration
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Vault    VaultConfig
-	EntraID  EntraIDConfig
-	Session  SessionConfig
-	Zone     ZoneConfig
-	DevMode  bool // Enable development mode (bypasses EntraID auth)
-	Identity IdentityConfig
+	Server       ServerConfig
+	Database     DatabaseConfig
+	Vault        VaultConfig
+	EntraID      EntraIDConfig
+	Session      SessionConfig
+	Zone         ZoneConfig
+	DevMode      bool // Enable development mode (bypasses EntraID auth)
+	Identity     IdentityConfig
+	Orchestrator OrchestratorConfig
+}
+
+// OrchestratorConfig holds Orchestrator Service configuration
+type OrchestratorConfig struct {
+	URL string
 }
 
 // IdentityConfig holds Identity Service configuration
@@ -131,6 +137,9 @@ func Load() (*Config, error) {
 		DevMode: getEnv("DEV_MODE", "false") == "true",
 		Identity: IdentityConfig{
 			URL: getEnv("IDENTITY_URL", "http://localhost:8082"),
+		},
+		Orchestrator: OrchestratorConfig{
+			URL: getEnv("ORCHESTRATOR_URL", "http://localhost:8090"),
 		},
 	}
 

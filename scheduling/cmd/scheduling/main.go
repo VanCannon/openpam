@@ -10,13 +10,13 @@ import (
 	"syscall"
 	"time"
 
-	consulapi "github.com/hashicorp/consul/api"
 	"github.com/VanCannon/openpam/scheduling/internal/config"
 	"github.com/VanCannon/openpam/scheduling/internal/database"
 	"github.com/VanCannon/openpam/scheduling/internal/events"
 	"github.com/VanCannon/openpam/scheduling/internal/handlers"
 	"github.com/VanCannon/openpam/scheduling/internal/schedule"
 	"github.com/VanCannon/openpam/scheduling/pkg/logger"
+	consulapi "github.com/hashicorp/consul/api"
 )
 
 func main() {
@@ -103,6 +103,8 @@ func main() {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+	mux.HandleFunc("/api/v1/schedules/approve", handler.ApproveSchedule)
+	mux.HandleFunc("/api/v1/schedules/reject", handler.RejectSchedule)
 	mux.HandleFunc("/api/v1/schedule/check", handler.CheckAccess)
 
 	// Create HTTP server

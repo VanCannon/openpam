@@ -33,6 +33,7 @@ type Server struct {
 	targetHandler     *handlers.TargetHandler
 	connectionHandler *handlers.ConnectionHandler
 	scheduleHandler   *handlers.ScheduleHandler
+	identityHandler   *handlers.IdentityHandler
 	tokenManager      *auth.TokenManager
 	sessionStore      auth.SessionStore
 }
@@ -114,6 +115,11 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 	systemAuditHandler := handlers.NewSystemAuditLogHandler(systemAuditRepo, log)
 	monitorHandler := handlers.NewMonitorHandler(auditRepo, userRepo, sshMonitor, sshRecorder, log, cfg.DevMode)
 
+	scheduleRepo := repository.NewScheduleRepository(db)
+	scheduleHandler := handlers.NewScheduleHandler(scheduleRepo, log)
+
+	identityHandler := handlers.NewIdentityHandler(cfg.Identity.URL, cfg.Orchestrator.URL, log)
+
 	connectionHandler := handlers.NewConnectionHandler(
 		vaultClient,
 		targetRepo,
@@ -122,10 +128,8 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		sshProxy,
 		rdpProxy,
 		log,
+		scheduleRepo,
 	)
-
-	scheduleRepo := repository.NewScheduleRepository(db)
-	scheduleHandler := handlers.NewScheduleHandler(scheduleRepo, log)
 
 	s := &Server{
 		config:            cfg,
@@ -139,6 +143,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		targetHandler:     targetHandler,
 		connectionHandler: connectionHandler,
 		scheduleHandler:   scheduleHandler,
+		identityHandler:   identityHandler,
 		tokenManager:      tokenManager,
 		sessionStore:      sessionStore,
 	}
@@ -237,6 +242,25 @@ func (s *Server) setupRoutes() {
 	// Admin-only routes for approval/rejection
 	s.router.Handle("/api/v1/schedules/approve", s.requireRole(models.RoleAdmin, s.scheduleHandler.HandleApproveSchedule()))
 	s.router.Handle("/api/v1/schedules/reject", s.requireRole(models.RoleAdmin, s.scheduleHandler.HandleRejectSchedule()))
+	s.router.Handle("/api/v1/schedules/", s.requireRole(models.RoleAdmin, s.scheduleHandler.HandleDeleteSchedule()))
+
+	// Identity and AD Sync routes (Admin only)
+	s.router.Handle("/api/v1/identity/config", s.requireRole(models.RoleAdmin, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			s.identityHandler.HandleGetConfig().ServeHTTP(w, r)
+		} else if r.Method == http.MethodPost {
+			s.identityHandler.HandleSaveConfig().ServeHTTP(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	s.router.Handle("/api/v1/ad-users", s.requireRole(models.RoleAdmin, s.identityHandler.HandleListADUsers()))
+	s.router.Handle("/api/v1/ad-computers", s.requireRole(models.RoleAdmin, s.identityHandler.HandleListADComputers()))
+	s.router.Handle("/api/v1/ad-groups", s.requireRole(models.RoleAdmin, s.identityHandler.HandleListADGroups()))
+	s.router.Handle("/api/v1/users/import", s.requireRole(models.RoleAdmin, s.identityHandler.HandleImportUser()))
+	s.router.Handle("/api/v1/groups/import", s.requireRole(models.RoleAdmin, s.identityHandler.HandleImportGroup()))
+	s.router.Handle("/api/v1/computers/import", s.requireRole(models.RoleAdmin, s.identityHandler.HandleImportComputer()))
+	s.router.Handle("/api/v1/orchestrator/sync/ad", s.requireRole(models.RoleAdmin, s.identityHandler.HandleSyncAD()))
 
 	// WebSocket endpoint for connections (auth required)
 	s.router.Handle("/api/ws/connect/", s.requireAuth(s.connectionHandler.HandleConnect()))

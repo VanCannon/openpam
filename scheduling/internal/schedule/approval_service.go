@@ -28,8 +28,19 @@ func (s *Service) ApproveSchedule(scheduleID, approvedBy string, modifyStartTime
 		endTime = *modifyEndTime
 	}
 
+	// Prepare approvedBy value (handle empty string)
+	var approvedByVal interface{} = approvedBy
+	if approvedBy == "" {
+		approvedByVal = nil
+	}
+
 	// Update schedule
 	now := time.Now()
+	status := schedule.Status
+	if !startTime.After(now) {
+		status = "active"
+	}
+
 	query := `
 		UPDATE schedules
 		SET approval_status = 'approved',
@@ -37,11 +48,12 @@ func (s *Service) ApproveSchedule(scheduleID, approvedBy string, modifyStartTime
 		    approved_at = $2,
 		    start_time = $3,
 		    end_time = $4,
-		    updated_at = $5
-		WHERE id = $6
+		    updated_at = $5,
+		    status = $6
+		WHERE id = $7
 	`
 
-	_, err = s.db.Exec(query, approvedBy, now, startTime, endTime, now, scheduleID)
+	_, err = s.db.Exec(query, approvedByVal, now, startTime, endTime, now, status, scheduleID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to approve schedule: %w", err)
 	}
@@ -70,6 +82,12 @@ func (s *Service) RejectSchedule(scheduleID, rejectedBy, reason string) error {
 		return fmt.Errorf("schedule %s is not pending approval (current status: %s)", scheduleID, schedule.ApprovalStatus)
 	}
 
+	// Prepare rejectedBy value (handle empty string)
+	var rejectedByVal interface{} = rejectedBy
+	if rejectedBy == "" {
+		rejectedByVal = nil
+	}
+
 	// Update schedule
 	now := time.Now()
 	query := `
@@ -82,7 +100,7 @@ func (s *Service) RejectSchedule(scheduleID, rejectedBy, reason string) error {
 		WHERE id = $5
 	`
 
-	_, err = s.db.Exec(query, reason, rejectedBy, now, now, scheduleID)
+	_, err = s.db.Exec(query, reason, rejectedByVal, now, now, scheduleID)
 	if err != nil {
 		return fmt.Errorf("failed to reject schedule: %w", err)
 	}

@@ -6,7 +6,6 @@ import { Credential, Target } from '@/types'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import Header from '@/components/header'
 
 export default function CredentialsPage() {
   const { user, loading: authLoading } = useAuth() // Renamed to avoid conflict with local 'loading' state
@@ -131,14 +130,13 @@ export default function CredentialsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header />
+    <div className="min-h-screen bg-background">
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Credentials</h1>
-            <p className="text-sm text-gray-600 mt-1">Manage credentials for targets</p>
+            <h1 className="text-2xl font-bold text-foreground">Credentials</h1>
+            <p className="text-sm text-muted-foreground mt-1">Manage credentials for targets</p>
           </div>
           <button
             onClick={handleCreate}
@@ -151,16 +149,16 @@ export default function CredentialsPage() {
 
         {targets.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-gray-500">No targets found. Create a target first.</p>
+            <p className="text-muted-foreground">No targets found. Create a target first.</p>
           </div>
         ) : (
           <>
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Select Target</label>
+              <label className="block text-sm font-medium text-foreground mb-2">Select Target</label>
               <select
                 value={selectedTargetId}
                 onChange={(e) => handleTargetChange(e.target.value)}
-                className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-md"
+                className="w-full max-w-md px-3 py-2 border border-input rounded-md"
               >
                 {targets.map((target) => (
                   <option key={target.id} value={target.id}>
@@ -171,24 +169,24 @@ export default function CredentialsPage() {
             </div>
 
             {loadingCredentials ? (
-              <div className="text-center py-12"><p className="text-gray-500">Loading...</p></div>
+              <div className="text-center py-12"><p className="text-muted-foreground">Loading...</p></div>
             ) : credentials.length === 0 ? (
-              <div className="text-center py-12"><p className="text-gray-500">No credentials found for this target</p></div>
+              <div className="text-center py-12"><p className="text-muted-foreground">No credentials found for this target</p></div>
             ) : (
-              <div className="bg-white shadow rounded-lg overflow-hidden">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+              <div className="bg-card shadow rounded-lg overflow-hidden">
+                <table className="min-w-full divide-y divide-border">
+                  <thead className="bg-background">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Username</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Username</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Description</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="bg-card divide-y divide-border">
                     {credentials.map((cred) => (
                       <tr key={cred.id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{cred.username}</td>
-                        <td className="px-6 py-4 text-sm text-gray-500">{cred.description || '-'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">{cred.username}</td>
+                        <td className="px-6 py-4 text-sm text-muted-foreground">{cred.description || '-'}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm space-x-3">
                           <button
                             onClick={() => handleEdit(cred)}
@@ -215,17 +213,17 @@ export default function CredentialsPage() {
 
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
+          <div className="bg-card rounded-lg max-w-md w-full p-6">
             <h3 className="text-lg font-semibold mb-4">{editingId ? 'Edit Credential' : 'Create Credential'}</h3>
             <form onSubmit={handleSubmit}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Target</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Target</label>
                   <select
                     required
                     value={formData.target_id}
                     onChange={(e) => setFormData({ ...formData, target_id: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="w-full px-3 py-2 border border-input rounded-md"
                     disabled={!!editingId}
                   >
                     <option value="">Select a target</option>
@@ -235,33 +233,33 @@ export default function CredentialsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Username</label>
                   <input
                     type="text"
                     required
                     value={formData.username}
                     onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="w-full px-3 py-2 border border-input rounded-md"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Vault Secret Path</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Vault Secret Path</label>
                   <input
                     type="text"
                     required={!editingId} // Only required for new credentials
                     value={formData.vault_secret_path}
                     onChange={(e) => setFormData({ ...formData, vault_secret_path: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="w-full px-3 py-2 border border-input rounded-md"
                     placeholder={editingId ? 'Leave empty to keep unchanged' : ''}
                   />
-                  {editingId && <p className="text-xs text-gray-500 mt-1">Enter new path to update, or leave as is</p>}
+                  {editingId && <p className="text-xs text-muted-foreground mt-1">Enter new path to update, or leave as is</p>}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Description</label>
                   <textarea
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="w-full px-3 py-2 border border-input rounded-md"
                     rows={3}
                   />
                 </div>
@@ -270,7 +268,7 @@ export default function CredentialsPage() {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  className="flex-1 px-4 py-2 border border-input rounded-md text-foreground hover:bg-background"
                 >
                   Cancel
                 </button>

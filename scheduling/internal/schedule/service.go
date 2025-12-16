@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/VanCannon/openpam/scheduling/pkg/logger"
+	"github.com/google/uuid"
 )
 
 type Service struct {
@@ -23,19 +23,56 @@ func NewService(db *sql.DB, log *logger.Logger) *Service {
 }
 
 func (s *Service) CreateSchedule(req *CreateScheduleRequest, createdBy string) (*Schedule, error) {
+	status := "pending"
+	approvalStatus := "pending"
+
+	// Check for existing standing access
+	if req.Type == "standing" {
+		var count int
+		checkQuery := `
+			SELECT count(*) FROM schedules 
+			WHERE user_id = $1 AND target_id = $2 
+			AND type = 'standing' 
+			AND status IN ('active', 'pending')
+			AND approval_status != 'rejected'
+		`
+		err := s.db.QueryRow(checkQuery, req.UserID, req.TargetID).Scan(&count)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check existing schedules: %w", err)
+		}
+		if count > 0 {
+			return nil, fmt.Errorf("user already has active or pending standing access for this target")
+		}
+	}
+
+	// Auto-approve if created by someone else (Admin on behalf of user)
+	// or if it's a standing access request (for now, assuming admins create these mostly)
+	if createdBy != "" && createdBy != req.UserID {
+		approvalStatus = "approved"
+	}
+
+	// If approved and start time is now/past, activate immediately
+	if approvalStatus == "approved" && !req.StartTime.After(time.Now()) {
+		status = "active"
+	}
+
 	schedule := &Schedule{
-		ID:             uuid.New().String(),
-		UserID:         req.UserID,
-		TargetID:       req.TargetID,
-		StartTime:      req.StartTime,
-		EndTime:        req.EndTime,
-		RecurrenceRule: req.RecurrenceRule,
-		Timezone:       req.Timezone,
-		Status:         "pending",
-		ApprovalStatus: "pending", // All new schedules start as pending approval
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
-		Metadata:       req.Metadata,
+		ID:              uuid.New().String(),
+		UserID:          req.UserID,
+		TargetID:        req.TargetID,
+		StartTime:       req.StartTime,
+		EndTime:         req.EndTime,
+		RecurrenceRule:  req.RecurrenceRule,
+		Timezone:        req.Timezone,
+		Status:          status,
+		ApprovalStatus:  approvalStatus,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+		Metadata:        req.Metadata,
+		Type:            req.Type,
+		AccountType:     req.AccountType,
+		AccountDetails:  req.AccountDetails,
+		ProvisionStatus: "pending",
 	}
 
 	if createdBy != "" {
@@ -43,18 +80,21 @@ func (s *Service) CreateSchedule(req *CreateScheduleRequest, createdBy string) (
 	}
 
 	metadataJSON, _ := json.Marshal(schedule.Metadata)
+	accountDetailsJSON, _ := json.Marshal(schedule.AccountDetails)
 
 	query := `
 		INSERT INTO schedules (
 			id, user_id, target_id, start_time, end_time, recurrence_rule,
-			timezone, status, approval_status, created_by, created_at, updated_at, metadata
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			timezone, status, approval_status, created_by, created_at, updated_at, metadata,
+			type, account_type, account_details, provision_status
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 	`
 
 	_, err := s.db.Exec(query,
 		schedule.ID, schedule.UserID, schedule.TargetID, schedule.StartTime,
 		schedule.EndTime, schedule.RecurrenceRule, schedule.Timezone, schedule.Status,
 		schedule.ApprovalStatus, schedule.CreatedBy, schedule.CreatedAt, schedule.UpdatedAt, metadataJSON,
+		schedule.Type, schedule.AccountType, accountDetailsJSON, schedule.ProvisionStatus,
 	)
 
 	if err != nil {
@@ -73,14 +113,14 @@ func (s *Service) CreateSchedule(req *CreateScheduleRequest, createdBy string) (
 
 func (s *Service) GetSchedule(id string) (*Schedule, error) {
 	var schedule Schedule
-	var metadataJSON []byte
+	var metadataJSON, accountDetailsJSON []byte
 	var recurrenceRule, createdBy, rejectionReason, approvedBy sql.NullString
 	var approvedAt sql.NullTime
 
 	query := `
 		SELECT id, user_id, target_id, start_time, end_time, recurrence_rule,
 		       timezone, status, approval_status, rejection_reason, approved_by, approved_at,
-		       created_by, created_at, updated_at, metadata
+		       created_by, created_at, updated_at, metadata, type, account_type, account_details, provision_status
 		FROM schedules
 		WHERE id = $1
 	`
@@ -90,6 +130,7 @@ func (s *Service) GetSchedule(id string) (*Schedule, error) {
 		&schedule.EndTime, &recurrenceRule, &schedule.Timezone, &schedule.Status,
 		&schedule.ApprovalStatus, &rejectionReason, &approvedBy, &approvedAt,
 		&createdBy, &schedule.CreatedAt, &schedule.UpdatedAt, &metadataJSON,
+		&schedule.Type, &schedule.AccountType, &accountDetailsJSON, &schedule.ProvisionStatus,
 	)
 
 	if err != nil {
@@ -113,6 +154,9 @@ func (s *Service) GetSchedule(id string) (*Schedule, error) {
 	}
 	if len(metadataJSON) > 0 {
 		json.Unmarshal(metadataJSON, &schedule.Metadata)
+	}
+	if len(accountDetailsJSON) > 0 {
+		json.Unmarshal(accountDetailsJSON, &schedule.AccountDetails)
 	}
 
 	return &schedule, nil
@@ -194,7 +238,7 @@ func (s *Service) ListSchedules(req *ListSchedulesRequest) ([]*Schedule, error) 
 	query := `
 		SELECT id, user_id, target_id, start_time, end_time, recurrence_rule,
 		       timezone, status, approval_status, rejection_reason, approved_by, approved_at,
-		       created_by, created_at, updated_at, metadata
+		       created_by, created_at, updated_at, metadata, type, account_type, account_details, provision_status
 		FROM schedules
 		WHERE 1=1
 	`
@@ -247,7 +291,7 @@ func (s *Service) ListSchedules(req *ListSchedulesRequest) ([]*Schedule, error) 
 	schedules := []*Schedule{}
 	for rows.Next() {
 		var schedule Schedule
-		var metadataJSON []byte
+		var metadataJSON, accountDetailsJSON []byte
 		var recurrenceRule, createdBy, rejectionReason, approvedBy sql.NullString
 		var approvedAt sql.NullTime
 
@@ -256,6 +300,7 @@ func (s *Service) ListSchedules(req *ListSchedulesRequest) ([]*Schedule, error) 
 			&schedule.EndTime, &recurrenceRule, &schedule.Timezone, &schedule.Status,
 			&schedule.ApprovalStatus, &rejectionReason, &approvedBy, &approvedAt,
 			&createdBy, &schedule.CreatedAt, &schedule.UpdatedAt, &metadataJSON,
+			&schedule.Type, &schedule.AccountType, &accountDetailsJSON, &schedule.ProvisionStatus,
 		)
 
 		if err != nil {
@@ -279,6 +324,9 @@ func (s *Service) ListSchedules(req *ListSchedulesRequest) ([]*Schedule, error) 
 		}
 		if len(metadataJSON) > 0 {
 			json.Unmarshal(metadataJSON, &schedule.Metadata)
+		}
+		if len(accountDetailsJSON) > 0 {
+			json.Unmarshal(accountDetailsJSON, &schedule.AccountDetails)
 		}
 
 		schedules = append(schedules, &schedule)

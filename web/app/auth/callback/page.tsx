@@ -40,8 +40,8 @@ function AuthCallbackContent() {
         // Update auth context
         await setToken(finalToken)
 
-        // Redirect to dashboard
-        router.push('/dashboard')
+        // Redirect to sessions
+        router.push('/sessions')
       } else {
         console.error('No token found in callback')
         router.push('/login')
@@ -55,7 +55,7 @@ function AuthCallbackContent() {
     <div className="flex min-h-screen items-center justify-center">
       <div className="text-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-        <p className="text-gray-600">Completing login...</p>
+        <p className="text-muted-foreground">Completing login...</p>
       </div>
     </div>
   )
@@ -67,7 +67,7 @@ export default function AuthCallbackPage() {
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+          <p className="text-muted-foreground">Loading...</p>
         </div>
       </div>
     }>

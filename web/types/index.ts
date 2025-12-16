@@ -8,6 +8,16 @@ export interface User {
   updated_at: string
 }
 
+
+export interface Group {
+  id: string
+  name: string
+  description?: string
+  created_at: string
+  updated_at: string
+  member_count?: number
+}
+
 export interface Zone {
   id: string
   name: string
