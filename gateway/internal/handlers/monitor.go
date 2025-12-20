@@ -6,6 +6,7 @@ import (
 	"github.com/VanCannon/openpam/gateway/internal/logger"
 	"github.com/VanCannon/openpam/gateway/internal/middleware"
 	"github.com/VanCannon/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/rdp"
 	"github.com/VanCannon/openpam/gateway/internal/repository"
 	"github.com/VanCannon/openpam/gateway/internal/ssh"
 	"github.com/google/uuid"
@@ -14,30 +15,33 @@ import (
 
 // MonitorHandler handles live session monitoring requests
 type MonitorHandler struct {
-	auditRepo *repository.AuditLogRepository
-	userRepo  *repository.UserRepository
-	monitor   *ssh.Monitor
-	recorder  *ssh.Recorder
-	logger    *logger.Logger
-	devMode   bool
+	auditRepo      *repository.AuditLogRepository
+	userRepo       *repository.UserRepository
+	sshMonitor     *ssh.Monitor
+	rdpMonitor     *rdp.AsyncMonitor
+	sshRecorder    *ssh.Recorder
+	logger         *logger.Logger
+	devMode        bool
 }
 
 // NewMonitorHandler creates a new monitor handler
 func NewMonitorHandler(
 	auditRepo *repository.AuditLogRepository,
 	userRepo *repository.UserRepository,
-	monitor *ssh.Monitor,
-	recorder *ssh.Recorder,
+	sshMonitor *ssh.Monitor,
+	rdpMonitor *rdp.AsyncMonitor,
+	sshRecorder *ssh.Recorder,
 	log *logger.Logger,
 	devMode bool,
 ) *MonitorHandler {
 	return &MonitorHandler{
-		auditRepo: auditRepo,
-		userRepo:  userRepo,
-		monitor:   monitor,
-		recorder:  recorder,
-		logger:    log,
-		devMode:   devMode,
+		auditRepo:   auditRepo,
+		userRepo:    userRepo,
+		sshMonitor:  sshMonitor,
+		rdpMonitor:  rdpMonitor,
+		sshRecorder: sshRecorder,
+		logger:      log,
+		devMode:     devMode,
 	}
 }
 
@@ -106,39 +110,78 @@ func (h *MonitorHandler) HandleMonitor() http.HandlerFunc {
 			}
 		}
 
-		// Subscribe to session updates FIRST (before broadcasting)
-		dataChan := h.monitor.Subscribe(sessionID.String())
-		defer h.monitor.Unsubscribe(sessionID.String(), dataChan)
-
-		// Write audit message to recording
-		if h.recorder != nil {
-			auditMsg := []byte("\r\n\r\n[--- Live monitoring by " + monitorUser + " started ---]\r\n\r\n")
-			if writer := h.recorder.GetWriter(sessionID.String()); writer != nil {
-				writer.Write(auditMsg)
-			}
-		}
-
-		// Forward data from monitor to WebSocket
-		for data := range dataChan {
-			if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-				h.logger.Debug("Monitor WebSocket write error", map[string]interface{}{
+		// Handle monitoring based on protocol type
+		if auditLog.Protocol == models.ProtocolRDP {
+			// RDP session - use async monitor
+			if h.rdpMonitor == nil {
+				h.logger.Error("RDP monitor not available", map[string]interface{}{
 					"session_id": sessionID.String(),
-					"error":      err.Error(),
 				})
+				http.Error(w, "RDP monitoring not available", http.StatusServiceUnavailable)
 				return
 			}
-		}
 
-		// Write audit message when monitoring ends
-		if h.recorder != nil {
-			auditMsg := []byte("\r\n\r\n[--- Live monitoring by " + monitorUser + " ended ---]\r\n\r\n")
-			if writer := h.recorder.GetWriter(sessionID.String()); writer != nil {
-				writer.Write(auditMsg)
+			dataChan := h.rdpMonitor.Subscribe(sessionID.String())
+			if dataChan == nil {
+				h.logger.Error("Failed to subscribe to RDP session (max subscribers reached)", map[string]interface{}{
+					"session_id": sessionID.String(),
+				})
+				http.Error(w, "Maximum subscribers reached for this session", http.StatusTooManyRequests)
+				return
+			}
+			defer h.rdpMonitor.Unsubscribe(sessionID.String(), dataChan)
+
+			h.logger.Info("RDP monitor subscribed", map[string]interface{}{
+				"session_id":   sessionID.String(),
+				"monitor_user": monitorUser,
+			})
+
+			// Forward data from RDP monitor to WebSocket (text messages for Guacamole protocol)
+			for data := range dataChan {
+				if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+					h.logger.Debug("RDP Monitor WebSocket write error", map[string]interface{}{
+						"session_id": sessionID.String(),
+						"error":      err.Error(),
+					})
+					return
+				}
+			}
+		} else {
+			// SSH session - use legacy monitor
+			dataChan := h.sshMonitor.Subscribe(sessionID.String())
+			defer h.sshMonitor.Unsubscribe(sessionID.String(), dataChan)
+
+			// Write audit message to SSH recording
+			if h.sshRecorder != nil {
+				auditMsg := []byte("\r\n\r\n[--- Live monitoring by " + monitorUser + " started ---]\r\n\r\n")
+				if writer := h.sshRecorder.GetWriter(sessionID.String()); writer != nil {
+					writer.Write(auditMsg)
+				}
+			}
+
+			// Forward data from SSH monitor to WebSocket
+			for data := range dataChan {
+				if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+					h.logger.Debug("SSH Monitor WebSocket write error", map[string]interface{}{
+						"session_id": sessionID.String(),
+						"error":      err.Error(),
+					})
+					return
+				}
+			}
+
+			// Write audit message when monitoring ends
+			if h.sshRecorder != nil {
+				auditMsg := []byte("\r\n\r\n[--- Live monitoring by " + monitorUser + " ended ---]\r\n\r\n")
+				if writer := h.sshRecorder.GetWriter(sessionID.String()); writer != nil {
+					writer.Write(auditMsg)
+				}
 			}
 		}
 
 		h.logger.Info("Monitor disconnected from session", map[string]interface{}{
 			"session_id": sessionID.String(),
+			"protocol":   auditLog.Protocol,
 		})
 	}
 }

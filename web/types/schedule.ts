@@ -17,7 +17,7 @@ export interface Schedule {
     updated_at: string
     metadata?: Record<string, any>
     type: 'scheduled' | 'standing'
-    account_type: 'static' | 'dynamic' | 'ephemeral' | 'user_promotion'
+    account_type: 'static' | 'managed' | 'ephemeral' | 'user_promotion'
     account_details?: Record<string, any>
     provision_status?: 'pending' | 'provisioned' | 'deprovisioned' | 'failed'
 }

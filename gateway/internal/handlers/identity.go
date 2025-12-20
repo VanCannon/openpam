@@ -116,3 +116,17 @@ func (h *IdentityHandler) HandleSyncAD() http.HandlerFunc {
 		h.proxyRequest(h.orchestratorURL, w, r)
 	}
 }
+
+// HandleListManagedAccounts proxies the request to list managed accounts
+func (h *IdentityHandler) HandleListManagedAccounts() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h.proxyRequest(h.identityURL, w, r)
+	}
+}
+
+// HandleDeleteManagedAccount proxies the request to delete managed accounts
+func (h *IdentityHandler) HandleDeleteManagedAccount() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h.proxyRequest(h.identityURL, w, r)
+	}
+}

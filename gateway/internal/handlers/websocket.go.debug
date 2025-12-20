@@ -1,0 +1,13 @@
+// After line 333 (after GetCredentials), add debug logging:
+if err != nil {
+    h.logger.Error("DEBUG: Failed to get credentials from Vault", map[string]interface{}{
+        "vault_path": vaultPath,
+        "error":      err.Error(),
+    })
+} else {
+    h.logger.Info("DEBUG: Got credentials from Vault", map[string]interface{}{
+        "vault_path": vaultPath,
+        "username":   vaultCreds.Username,
+        "has_password": vaultCreds.Password != "",
+    })
+}

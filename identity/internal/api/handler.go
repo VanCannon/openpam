@@ -11,6 +11,7 @@ import (
 	"openpam/identity/internal/ldap"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -51,6 +52,7 @@ func RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/v1/groups/import", ImportADGroup).Methods("POST")
 	r.HandleFunc("/api/v1/computers/import", ImportADComputer).Methods("POST")
 	r.HandleFunc("/api/v1/managed-accounts", GetManagedAccounts).Methods("GET")
+	r.HandleFunc("/api/v1/managed-accounts/{id}", DeleteManagedAccount).Methods("DELETE")
 	r.HandleFunc("/api/v1/identity/auth", VerifyCredentials).Methods("POST")
 }
 
@@ -367,8 +369,9 @@ func GetADGroups(w http.ResponseWriter, r *http.Request) {
 
 func ImportADUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ADUserID string `json:"ad_user_id"`
-		Role     string `json:"role"`
+		ADUserID        string `json:"ad_user_id"`
+		Role            string `json:"role"`
+		VaultSecretPath string `json:"vault_secret_path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -409,17 +412,50 @@ func ImportADUser(w http.ResponseWriter, r *http.Request) {
 	if req.Role == "managed" {
 		// Save to managed_accounts table
 		account := db.ManagedAccount{
-			ID:          targetUser.ID,
-			EntraID:     targetUser.SAMAccountName,
-			Email:       email,
-			DisplayName: targetUser.DisplayName,
-			Source:      "active_directory",
+			ID:              targetUser.ID,
+			EntraID:         targetUser.SAMAccountName,
+			Email:           email,
+			DisplayName:     targetUser.DisplayName,
+			Source:          "active_directory",
+			Status:          targetUser.Status,
+			VaultSecretPath: req.VaultSecretPath,
+		}
+
+		if account.Status == "" {
+			account.Status = "Active"
 		}
 
 		if err := db.SaveManagedAccounts([]db.ManagedAccount{account}); err != nil {
 			log.Printf("Failed to import managed account: %v", err)
 			http.Error(w, "Failed to import managed account", http.StatusInternalServerError)
 			return
+		}
+
+		// Disable the account in AD via Activity Service
+		activityURL := "http://activity:8083/api/v1/activity/accounts/disable"
+		disableReqBody := map[string]string{
+			"sam_account_name": targetUser.SAMAccountName,
+			"dn":               targetUser.DN,
+		}
+		jsonBody, _ := json.Marshal(disableReqBody)
+
+		req, err := http.NewRequest("POST", activityURL, bytes.NewBuffer(jsonBody))
+		if err != nil {
+			log.Printf("Failed to create disable request: %v", err)
+		} else {
+			req.Header.Set("Content-Type", "application/json")
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Printf("Failed to disable account in AD: %v", err)
+			} else {
+				defer resp.Body.Close()
+				if resp.StatusCode != 200 {
+					log.Printf("Failed to disable account in AD: status %d", resp.StatusCode)
+				} else {
+					log.Printf("Successfully disabled account %s in AD", targetUser.SAMAccountName)
+				}
+			}
 		}
 	} else {
 		// Save to users table
@@ -603,4 +639,23 @@ func GetComputers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"computers": computers,
 	})
+}
+
+func DeleteManagedAccount(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	if id == "" {
+		http.Error(w, "ID is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := db.DeleteManagedAccount(id); err != nil {
+		log.Printf("Failed to delete managed account %s: %v", id, err)
+		http.Error(w, "Failed to delete managed account", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }

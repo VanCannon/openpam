@@ -196,8 +196,20 @@ export default function ScheduleRequestsPage() {
         }
     }
 
-    const formatDateTime = (dateString: string) => {
-        return new Date(dateString).toLocaleString()
+    const formatDateTime = (dateString: string, timezone?: string) => {
+        if (!dateString) return 'N/A'
+        try {
+            return new Date(dateString).toLocaleString(undefined, {
+                timeZone: timezone || undefined,
+                year: 'numeric',
+                month: 'numeric',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: 'numeric',
+            }) + (timezone ? ` (${timezone})` : '')
+        } catch (e) {
+            return new Date(dateString).toLocaleString()
+        }
     }
 
     if (loading || user?.role.toLowerCase() !== 'admin') {
@@ -302,9 +314,9 @@ export default function ScheduleRequestsPage() {
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div className="text-sm text-foreground ">
-                                                    <div>{formatDateTime(schedule.start_time)}</div>
+                                                    <div>{formatDateTime(schedule.start_time, schedule.timezone)}</div>
                                                     <div className="text-muted-foreground ">to</div>
-                                                    <div>{formatDateTime(schedule.end_time)}</div>
+                                                    <div>{formatDateTime(schedule.end_time, schedule.timezone)}</div>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
@@ -333,8 +345,15 @@ export default function ScheduleRequestsPage() {
                                                         <button
                                                             onClick={() => {
                                                                 setSelectedSchedule(schedule)
-                                                                setModifyStartTime(schedule.start_time.substring(0, 16))
-                                                                setModifyEndTime(schedule.end_time.substring(0, 16))
+                                                                // Convert UTC to local time for the input
+                                                                const toLocalISO = (dateStr: string) => {
+                                                                    const date = new Date(dateStr)
+                                                                    const offset = date.getTimezoneOffset() * 60000
+                                                                    const localDate = new Date(date.getTime() - offset)
+                                                                    return localDate.toISOString().slice(0, 16)
+                                                                }
+                                                                setModifyStartTime(toLocalISO(schedule.start_time))
+                                                                setModifyEndTime(toLocalISO(schedule.end_time))
                                                                 setShowApproveModal(true)
                                                             }}
                                                             className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300"

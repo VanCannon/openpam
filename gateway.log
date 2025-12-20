@@ -1,0 +1,37 @@
+WARNING: Using default session secret. Set SESSION_SECRET in production!
+WARNING: Development mode enabled. Authentication and Vault validation disabled!
+[2025-12-19T20:01:41-06:00] INFO: Starting OpenPAM Gateway | zone_type=hub zone_name=default version=0.1.0
+[2025-12-19T20:01:41-06:00] INFO: Connected to database | port=5432 name=openpam host=localhost
+[2025-12-19T20:01:41-06:00] INFO: Connected to Vault | address=http://localhost:8200
+[2025-12-19T20:01:41-06:00] INFO: Schedule worker started
+[2025-12-19T20:01:41-06:00] INFO: HTTP server starting | port=8080 host=0.0.0.0
+[2025-12-19T20:01:41-06:00] INFO: Starting OpenPAM Gateway | addr=0.0.0.0:8080 zone_type=hub zone_name=default
+[2025-12-19T20:01:46-06:00] INFO: SSE client connected | client_id=3c57250d-9aa4-4d2d-9fcc-c3c68abdef52 user_id=d90ef5bb-4e06-4252-bc95-7651855e8946
+[2025-12-19T20:01:46-06:00] INFO: Starting SSE event loop | client_id=3c57250d-9aa4-4d2d-9fcc-c3c68abdef52
+[2025-12-19T20:02:34-06:00] INFO: SSE client disconnected | client_id=3c57250d-9aa4-4d2d-9fcc-c3c68abdef52 user_id=d90ef5bb-4e06-4252-bc95-7651855e8946
+[2025-12-19T20:02:35-06:00] INFO: SSE client connected | client_id=739b387a-4f5e-41da-a06c-7665b5fa472b user_id=d90ef5bb-4e06-4252-bc95-7651855e8946
+[2025-12-19T20:02:35-06:00] INFO: Starting SSE event loop | client_id=739b387a-4f5e-41da-a06c-7665b5fa472b
+[2025-12-19T20:03:13-06:00] INFO: SSE client disconnected | client_id=739b387a-4f5e-41da-a06c-7665b5fa472b user_id=d90ef5bb-4e06-4252-bc95-7651855e8946
+[2025-12-19T20:03:14-06:00] INFO: SSE client connected | client_id=ddaad137-dcdb-4ae2-865d-9d57c87d3724 user_id=d90ef5bb-4e06-4252-bc95-7651855e8946
+[2025-12-19T20:03:14-06:00] INFO: Starting SSE event loop | client_id=ddaad137-dcdb-4ae2-865d-9d57c87d3724
+[2025-12-19T20:04:15-06:00] INFO: SSE client disconnected | client_id=ddaad137-dcdb-4ae2-865d-9d57c87d3724 user_id=d90ef5bb-4e06-4252-bc95-7651855e8946
+[2025-12-19T20:04:15-06:00] INFO: SSE client connected | client_id=f9eaa60e-832c-49c7-b377-f1fbb158ee83 user_id=d90ef5bb-4e06-4252-bc95-7651855e8946
+[2025-12-19T20:04:15-06:00] INFO: Starting SSE event loop | client_id=f9eaa60e-832c-49c7-b377-f1fbb158ee83
+[2025-12-19T20:04:17-06:00] INFO: Connection request | user=admin@example.com protocol=rdp target_id=3404a1de-5609-4885-9a2d-b1666df9935e
+[2025-12-19T20:04:17-06:00] INFO: Schedule validated | schedule_id=5f3339af-37ae-4ba0-b087-fa0011ad6acd user=admin@example.com
+[2025-12-19T20:04:17-06:00] ERROR: Missing vault path for dynamic account | schedule_id=5f3339af-37ae-4ba0-b087-fa0011ad6acd type=managed
+[2025-12-19T20:05:22-06:00] INFO: Connection request | protocol=rdp target_id=3404a1de-5609-4885-9a2d-b1666df9935e user=admin@example.com
+[2025-12-19T20:05:22-06:00] INFO: Schedule validated | schedule_id=5f3339af-37ae-4ba0-b087-fa0011ad6acd user=admin@example.com
+[2025-12-19T20:05:22-06:00] ERROR: Missing vault path for dynamic account | type=managed schedule_id=5f3339af-37ae-4ba0-b087-fa0011ad6acd
+[2025-12-19T20:05:31-06:00] INFO: SSE client disconnected | user_id=d90ef5bb-4e06-4252-bc95-7651855e8946 client_id=f9eaa60e-832c-49c7-b377-f1fbb158ee83
+[2025-12-19T20:05:33-06:00] INFO: Schedule deleted | schedule_id=5f3339af-37ae-4ba0-b087-fa0011ad6acd deleted_by=d90ef5bb-4e06-4252-bc95-7651855e8946
+[2025-12-19T20:05:35-06:00] INFO: SSE client connected | client_id=48da55a0-3a4e-4e03-9dca-4e4a98bf8319 user_id=d90ef5bb-4e06-4252-bc95-7651855e8946
+[2025-12-19T20:05:35-06:00] INFO: Starting SSE event loop | client_id=48da55a0-3a4e-4e03-9dca-4e4a98bf8319
+[2025-12-19T20:05:45-06:00] INFO: HandleRequestSchedule called | user_id=d90ef5bb-4e06-4252-bc95-7651855e8946 role=admin
+[2025-12-19T20:05:45-06:00] INFO: Schedule request created | target_id=3404a1de-5609-4885-9a2d-b1666df9935e schedule_id=c21d8d67-95c3-4fb9-8a75-8b456ebf3634 user_id=d90ef5bb-4e06-4252-bc95-7651855e8946
+[2025-12-19T20:05:46-06:00] INFO: Connection request | user=admin@example.com protocol=rdp target_id=3404a1de-5609-4885-9a2d-b1666df9935e
+[2025-12-19T20:05:46-06:00] INFO: Schedule validated | schedule_id=c21d8d67-95c3-4fb9-8a75-8b456ebf3634 user=admin@example.com
+[2025-12-19T20:05:46-06:00] ERROR: Failed to retrieve legacy credentials from Vault | error=secret not found at path: secret/data/DC01 vault_path=secret/data/DC01
+[2025-12-19T20:07:06-06:00] INFO: SSE client disconnected | client_id=48da55a0-3a4e-4e03-9dca-4e4a98bf8319 user_id=d90ef5bb-4e06-4252-bc95-7651855e8946
+[2025-12-19T20:07:07-06:00] INFO: SSE client connected | client_id=14016f1c-af55-41e5-a95d-a409befdf45f user_id=d90ef5bb-4e06-4252-bc95-7651855e8946
+[2025-12-19T20:07:07-06:00] INFO: Starting SSE event loop | client_id=14016f1c-af55-41e5-a95d-a409befdf45f

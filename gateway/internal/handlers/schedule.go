@@ -9,20 +9,23 @@ import (
 	"github.com/VanCannon/openpam/gateway/internal/middleware"
 	"github.com/VanCannon/openpam/gateway/internal/models"
 	"github.com/VanCannon/openpam/gateway/internal/repository"
+	"github.com/VanCannon/openpam/gateway/internal/sse"
 	"github.com/google/uuid"
 )
 
 // ScheduleHandler handles schedule-related requests
 type ScheduleHandler struct {
-	repo   *repository.ScheduleRepository
-	logger *logger.Logger
+	repo        *repository.ScheduleRepository
+	logger      *logger.Logger
+	broadcaster *sse.Broadcaster
 }
 
 // NewScheduleHandler creates a new schedule handler
-func NewScheduleHandler(repo *repository.ScheduleRepository, log *logger.Logger) *ScheduleHandler {
+func NewScheduleHandler(repo *repository.ScheduleRepository, log *logger.Logger, broadcaster *sse.Broadcaster) *ScheduleHandler {
 	return &ScheduleHandler{
-		repo:   repo,
-		logger: log,
+		repo:        repo,
+		logger:      log,
+		broadcaster: broadcaster,
 	}
 }
 
@@ -397,6 +400,16 @@ func (h *ScheduleHandler) HandleApproveSchedule() http.HandlerFunc {
 			"approved_by": userIDStr,
 		})
 
+		// Broadcast approval event via SSE
+		if updatedSchedule != nil {
+			h.broadcaster.BroadcastScheduleUpdate(
+				updatedSchedule.ID.String(),
+				updatedSchedule.UserID.String(),
+				"schedule.approved",
+				updatedSchedule,
+			)
+		}
+
 		response := map[string]interface{}{
 			"success": true,
 			"message": "Schedule approved successfully",
@@ -455,6 +468,16 @@ func (h *ScheduleHandler) HandleRejectSchedule() http.HandlerFunc {
 			"rejected_by": userIDStr,
 			"reason":      req.Reason,
 		})
+
+		// Broadcast rejection event via SSE
+		if rejectedSchedule, err := h.repo.GetByID(ctx, scheduleID); err == nil {
+			h.broadcaster.BroadcastScheduleUpdate(
+				rejectedSchedule.ID.String(),
+				rejectedSchedule.UserID.String(),
+				"schedule.rejected",
+				rejectedSchedule,
+			)
+		}
 
 		response := map[string]interface{}{
 			"success": true,

@@ -65,6 +65,18 @@ export default function IdentityPage() {
     const [showImportModal, setShowImportModal] = useState(false)
     const [importRole, setImportRole] = useState('user')
     const [importing, setImporting] = useState(false)
+    const [initialPassword, setInitialPassword] = useState('')
+    const [vaultSecretPath, setVaultSecretPath] = useState('')
+
+    useEffect(() => {
+        if (showImportModal && selectedUsers.size === 1) {
+            const userId = Array.from(selectedUsers)[0]
+            const user = adUsers.find(u => u.id === userId)
+            if (user) {
+                setVaultSecretPath(`secret/data/openpam/${user.sam_account_name}`)
+            }
+        }
+    }, [showImportModal, selectedUsers, adUsers])
 
     useEffect(() => {
         if (!loading && (!user || user.role.toLowerCase() !== 'admin')) {
@@ -211,21 +223,66 @@ export default function IdentityPage() {
         setImporting(true)
         try {
             if (activeTab === 'users') {
-                for (const userId of Array.from(selectedUsers)) {
+                if (importRole === 'managed') {
+                    if (selectedUsers.size !== 1) {
+                        alert('Managed Accounts must be imported one at a time to set initial credentials.')
+                        return
+                    }
+                    if (!initialPassword || !vaultSecretPath) {
+                        alert('Initial Password and Vault Path are required for Managed Accounts.')
+                        return
+                    }
+
+                    const userId = Array.from(selectedUsers)[0]
+                    const user = adUsers.find(u => u.id === userId)
+                    if (!user) return
+
+                    // 1. Store secret in Vault via Gateway
+                    const secretRes = await fetch('/api/v1/secrets', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            path: vaultSecretPath,
+                            username: user.sam_account_name,
+                            password: initialPassword
+                        })
+                    })
+                    if (!secretRes.ok) {
+                        throw new Error('Failed to store initial password in Vault')
+                    }
+
+                    // 2. Import user
                     const res = await fetch('/api/v1/users/import', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             ad_user_id: userId,
-                            role: importRole
+                            role: importRole,
+                            vault_secret_path: vaultSecretPath
                         })
                     })
                     if (!res.ok) {
                         throw new Error(`Failed to import user ${userId}: ${res.statusText}`)
                     }
+                } else {
+                    for (const userId of Array.from(selectedUsers)) {
+                        const res = await fetch('/api/v1/users/import', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                ad_user_id: userId,
+                                role: importRole
+                            })
+                        })
+                        if (!res.ok) {
+                            throw new Error(`Failed to import user ${userId}: ${res.statusText}`)
+                        }
+                    }
                 }
                 alert('Users imported successfully')
                 setSelectedUsers(new Set())
+                setInitialPassword('')
+                setVaultSecretPath('')
             } else if (activeTab === 'groups') {
                 for (const groupId of Array.from(selectedGroups)) {
                     const res = await fetch('/api/v1/groups/import', {
@@ -262,7 +319,7 @@ export default function IdentityPage() {
                 setSelectedComputers(new Set())
             }
             setShowImportModal(false)
-            // Optionally refresh users list if we were displaying it here, but we aren't.
+
         } catch (error) {
             console.error('Import failed:', error)
             alert('Failed to import some users')
@@ -678,6 +735,7 @@ export default function IdentityPage() {
                 )}
             </main>
 
+
             {/* Import Role Modal */}
             {showImportModal && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -746,6 +804,40 @@ export default function IdentityPage() {
                                             Managed Account (No Login)
                                         </label>
                                     </div>
+                                    {importRole === 'managed' && (
+                                        <div className="mt-4 space-y-4 border-t pt-4">
+                                            {selectedUsers.size > 1 ? (
+                                                <div className="text-sm text-yellow-600 bg-yellow-50 p-3 rounded-md border border-yellow-200">
+                                                    Managed Accounts must be imported one at a time to set initial credentials. Please select only one user.
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-foreground">Vault Secret Path</label>
+                                                        <input
+                                                            type="text"
+                                                            className="mt-1 block w-full rounded-md border-input shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                                            value={vaultSecretPath}
+                                                            onChange={(e) => setVaultSecretPath(e.target.value)}
+                                                            placeholder="secret/data/openpam/username"
+                                                        />
+                                                        <p className="text-xs text-muted-foreground mt-1">Full path to store credentials in Vault (KV v2).</p>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-foreground">Initial Password</label>
+                                                        <input
+                                                            type="password"
+                                                            className="mt-1 block w-full rounded-md border-input shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                                            value={initialPassword}
+                                                            onChange={(e) => setInitialPassword(e.target.value)}
+                                                            placeholder="********"
+                                                        />
+                                                        <p className="text-xs text-muted-foreground mt-1">Current password for the AD account. Will be stored in Vault immediately.</p>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </div>

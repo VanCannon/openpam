@@ -15,6 +15,7 @@ import (
 	"github.com/VanCannon/openpam/gateway/internal/models"
 	"github.com/VanCannon/openpam/gateway/internal/rdp"
 	"github.com/VanCannon/openpam/gateway/internal/repository"
+	"github.com/VanCannon/openpam/gateway/internal/sse"
 	"github.com/VanCannon/openpam/gateway/internal/ssh"
 	"github.com/VanCannon/openpam/gateway/internal/vault"
 )
@@ -34,8 +35,11 @@ type Server struct {
 	connectionHandler *handlers.ConnectionHandler
 	scheduleHandler   *handlers.ScheduleHandler
 	identityHandler   *handlers.IdentityHandler
+	secretHandler     *handlers.SecretHandler
+	sseHandler        *handlers.SSEHandler
 	tokenManager      *auth.TokenManager
 	sessionStore      auth.SessionStore
+	sseBroadcaster    *sse.Broadcaster
 }
 
 // New creates a new server instance
@@ -76,19 +80,24 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		sshRecorder = nil // Continue without recording
 	}
 
-	rdpRecorder, err := rdp.NewRecorder("./recordings")
+	// Use async recorder for enterprise-scale RDP recording
+	rdpAsyncRecorder, err := rdp.NewAsyncRecorder("./recordings")
 	if err != nil {
-		log.Error("Failed to create RDP recorder", map[string]interface{}{
+		log.Error("Failed to create async RDP recorder", map[string]interface{}{
 			"error": err.Error(),
 		})
-		rdpRecorder = nil // Continue without recording
+		rdpAsyncRecorder = nil // Continue without recording
 	}
 
-	// Create session monitor for live monitoring
+	// Create async monitor for enterprise-scale live monitoring
+	rdpAsyncMonitor := rdp.NewAsyncMonitor()
+
+	// Create legacy session monitor for SSH (still works fine for text-based sessions)
 	sshMonitor := ssh.NewMonitor()
 
 	sshProxy := ssh.NewProxy(log, sshRecorder, sshMonitor)
-	rdpProxy := rdp.NewProxy("localhost:4822", log, rdpRecorder, sshMonitor) // guacd address
+	// Use async RDP proxy for enterprise scale
+	rdpProxy := rdp.NewProxyAsync("localhost:4822", log, rdpAsyncRecorder, rdpAsyncMonitor)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(
@@ -110,15 +119,19 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 
 	targetHandler := handlers.NewTargetHandler(targetRepo, log)
 	zoneHandler := handlers.NewZoneHandler(zoneRepo, log)
-	credHandler := handlers.NewCredentialHandler(credRepo, log)
 	auditHandler := handlers.NewAuditLogHandler(auditRepo, sshRecorder, log)
 	systemAuditHandler := handlers.NewSystemAuditLogHandler(systemAuditRepo, log)
-	monitorHandler := handlers.NewMonitorHandler(auditRepo, userRepo, sshMonitor, sshRecorder, log, cfg.DevMode)
+	monitorHandler := handlers.NewMonitorHandler(auditRepo, userRepo, sshMonitor, rdpAsyncMonitor, sshRecorder, log, cfg.DevMode)
 
 	scheduleRepo := repository.NewScheduleRepository(db)
-	scheduleHandler := handlers.NewScheduleHandler(scheduleRepo, log)
+
+	// Initialize SSE broadcaster for real-time updates (before schedule handler)
+	sseBroadcaster := sse.NewBroadcaster()
+	sseHandler := handlers.NewSSEHandler(sseBroadcaster, log)
+	scheduleHandler := handlers.NewScheduleHandler(scheduleRepo, log, sseBroadcaster)
 
 	identityHandler := handlers.NewIdentityHandler(cfg.Identity.URL, cfg.Orchestrator.URL, log)
+	secretHandler := handlers.NewSecretHandler(vaultClient, log)
 
 	connectionHandler := handlers.NewConnectionHandler(
 		vaultClient,
@@ -129,6 +142,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		rdpProxy,
 		log,
 		scheduleRepo,
+		cfg.Activity.URL,
 	)
 
 	s := &Server{
@@ -144,8 +158,11 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		connectionHandler: connectionHandler,
 		scheduleHandler:   scheduleHandler,
 		identityHandler:   identityHandler,
+		secretHandler:     secretHandler,
+		sseHandler:        sseHandler,
 		tokenManager:      tokenManager,
 		sessionStore:      sessionStore,
+		sseBroadcaster:    sseBroadcaster,
 	}
 
 	// Zone routes - support both GET and POST on /api/v1/zones
@@ -168,11 +185,6 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 	s.router.Handle("/api/v1/targets/get", s.requireAuth(targetHandler.HandleGet()))
 	s.router.Handle("/api/v1/targets/update", s.requireAuth(targetHandler.HandleUpdate()))
 	s.router.Handle("/api/v1/targets/delete", s.requireAuth(targetHandler.HandleDelete()))
-
-	s.router.Handle("/api/v1/credentials", s.requireAuth(credHandler.HandleListByTarget()))
-	s.router.Handle("/api/v1/credentials/create", s.requireAuth(credHandler.HandleCreate()))
-	s.router.Handle("/api/v1/credentials/update", s.requireAuth(credHandler.HandleUpdate()))
-	s.router.Handle("/api/v1/credentials/delete", s.requireAuth(credHandler.HandleDelete()))
 
 	s.router.Handle("/api/v1/audit-logs", s.requireAuth(auditHandler.HandleList()))
 	s.router.Handle("/api/v1/audit-logs/", s.requireAuth(auditHandler.HandleGet()))
@@ -244,6 +256,9 @@ func (s *Server) setupRoutes() {
 	s.router.Handle("/api/v1/schedules/reject", s.requireRole(models.RoleAdmin, s.scheduleHandler.HandleRejectSchedule()))
 	s.router.Handle("/api/v1/schedules/", s.requireRole(models.RoleAdmin, s.scheduleHandler.HandleDeleteSchedule()))
 
+	// SSE endpoint for real-time schedule updates
+	s.router.Handle("/api/v1/schedules/stream", s.requireAuth(s.sseHandler.HandleScheduleUpdates()))
+
 	// Identity and AD Sync routes (Admin only)
 	s.router.Handle("/api/v1/identity/config", s.requireRole(models.RoleAdmin, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
@@ -261,6 +276,13 @@ func (s *Server) setupRoutes() {
 	s.router.Handle("/api/v1/groups/import", s.requireRole(models.RoleAdmin, s.identityHandler.HandleImportGroup()))
 	s.router.Handle("/api/v1/computers/import", s.requireRole(models.RoleAdmin, s.identityHandler.HandleImportComputer()))
 	s.router.Handle("/api/v1/orchestrator/sync/ad", s.requireRole(models.RoleAdmin, s.identityHandler.HandleSyncAD()))
+
+	// Managed Accounts (Auth required)
+	s.router.Handle("/api/v1/managed-accounts", s.requireAuth(s.identityHandler.HandleListManagedAccounts()))
+	s.router.Handle("/api/v1/managed-accounts/{id}", s.requireAuth(s.identityHandler.HandleDeleteManagedAccount()))
+
+	// Secrets management (Admin only) - for initial Managed Account passwords
+	s.router.Handle("/api/v1/secrets", s.requireRole(models.RoleAdmin, s.secretHandler.HandleCreate()))
 
 	// WebSocket endpoint for connections (auth required)
 	s.router.Handle("/api/ws/connect/", s.requireAuth(s.connectionHandler.HandleConnect()))
@@ -283,6 +305,11 @@ func (s *Server) requireAnyRole(roles []string, handler http.HandlerFunc) http.H
 	return middleware.RequireAuth(s.tokenManager, s.logger)(
 		middleware.RequireAnyRole(roles, s.logger)(handler),
 	)
+}
+
+// GetBroadcaster returns the SSE broadcaster
+func (s *Server) GetBroadcaster() *sse.Broadcaster {
+	return s.sseBroadcaster
 }
 
 // Start starts the HTTP server

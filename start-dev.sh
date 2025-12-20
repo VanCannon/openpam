@@ -15,7 +15,7 @@ fi
 
 # Start services
 echo "📦 Starting PostgreSQL and Vault..."
-docker-compose up -d postgres vault
+docker compose up -d postgres vault
 
 # Wait for PostgreSQL to be ready
 echo "⏳ Waiting for PostgreSQL to be ready..."

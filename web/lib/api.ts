@@ -101,6 +101,16 @@ class ApiClient {
     return this.request<User>(`/api/v1/users/${id}`)
   }
 
+  async listManagedAccounts(): Promise<ListResponse<import('@/types').ManagedAccount>> {
+    return this.request<ListResponse<import('@/types').ManagedAccount>>('/api/v1/managed-accounts')
+  }
+
+  async deleteManagedAccount(id: string): Promise<void> {
+    await this.request(`/api/v1/managed-accounts/${id}`, {
+      method: 'DELETE',
+    })
+  }
+
   // Zones
   async listZones(): Promise<ListResponse<Zone>> {
     return this.request<ListResponse<Zone>>('/api/v1/zones')

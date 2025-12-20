@@ -2,7 +2,7 @@
 
 import { useAuth } from '@/lib/auth-context'
 import { api } from '@/lib/api'
-import { Target, Credential, User } from '@/types'
+import { Target, Credential, User, ManagedAccount } from '@/types'
 import { Schedule } from '@/types/schedule'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
@@ -29,6 +29,13 @@ export default function DashboardPage() {
   const [scheduleType, setScheduleType] = useState('scheduled')
   const [accountType, setAccountType] = useState('static')
   const [requestForUserId, setRequestForUserId] = useState('')
+  // New State for Dynamic Accounts
+  const [managedAccounts, setManagedAccounts] = useState<ManagedAccount[]>([])
+  const [selectedManagedAccountId, setSelectedManagedAccountId] = useState('')
+  const [ephemeralPrefix, setEphemeralPrefix] = useState('pam-user')
+  const [promotionGroup, setPromotionGroup] = useState('')
+  const [connecting, setConnecting] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState('')
 
   useEffect(() => {
     if (!loading && !user) {
@@ -37,13 +44,87 @@ export default function DashboardPage() {
   }, [user, loading, router])
 
   useEffect(() => {
-    if (user) {
-      fetchData()
-      // Poll every 30 seconds to keep data fresh
-      const interval = setInterval(fetchData, 30000)
-      return () => clearInterval(interval)
+    if (!user) return
+
+    fetchData()
+
+    // Use SSE for real-time schedule updates with auto-reconnect
+    const token = localStorage.getItem('openpam_token')
+    if (!token) {
+      console.error('No auth token found for SSE')
+      return
+    }
+
+    let eventSource: EventSource | null = null
+    let reconnectTimeout: NodeJS.Timeout | null = null
+    let reconnectAttempts = 0
+    const maxReconnectDelay = 30000 // Max 30 seconds
+
+    const connect = () => {
+      console.log('Connecting to SSE stream...')
+
+      eventSource = new EventSource(
+        `http://localhost:8080/api/v1/schedules/stream?token=${encodeURIComponent(token)}`,
+        { withCredentials: true }
+      )
+
+      eventSource.onopen = () => {
+        console.log('SSE connection established')
+        reconnectAttempts = 0 // Reset on successful connection
+      }
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+
+          if (data.type === 'connected') {
+            console.log('SSE connected:', data)
+            return
+          }
+
+          // Handle schedule update events
+          if (data.type === 'schedule.activated' ||
+            data.type === 'schedule.expired' ||
+            data.type === 'schedule.updated' ||
+            data.type === 'schedule.approved' ||
+            data.type === 'schedule.rejected') {
+            console.log('Schedule update received:', data.type)
+            fetchData()
+          }
+        } catch (error) {
+          console.error('Failed to parse SSE event:', error)
+        }
+      }
+
+      eventSource.onerror = (error) => {
+        console.error('SSE connection error, will reconnect...', error)
+        eventSource?.close()
+
+        // Exponential backoff: 1s, 2s, 4s, 8s, ... up to 30s
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), maxReconnectDelay)
+        reconnectAttempts++
+
+        console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`)
+        reconnectTimeout = setTimeout(connect, delay)
+      }
+    }
+
+    connect()
+
+    return () => {
+      console.log('Cleaning up SSE connection')
+      if (reconnectTimeout) clearTimeout(reconnectTimeout)
+      eventSource?.close()
     }
   }, [user])
+
+  useEffect(() => {
+    if (showRequestModal && accountType === 'managed') {
+      api.listManagedAccounts()
+        .then(resp => setManagedAccounts(resp.accounts || []))
+        .catch(err => console.error('Failed to fetch managed accounts:', err))
+    }
+  }, [showRequestModal, accountType])
 
   const fetchData = async () => {
     try {
@@ -70,12 +151,17 @@ export default function DashboardPage() {
     const target = targets.find(t => t.id === schedule.target_id)
     if (!target) return
 
-    // For now, we assume static credentials or ephemeral ones are handled by the backend/gateway
-    // In a real implementation, we might need to fetch the specific credential for this session
-    // For this demo, we'll try to find a credential or just connect if the backend handles injection
+    setConnecting(true)
+    if (schedule.account_type === 'managed') {
+      setConnectionStatus('Enabling Managed Account in Active Directory...')
+      await new Promise(resolve => setTimeout(resolve, 1500))
+    }
+    setConnectionStatus('Establishing secure connection...')
+    await new Promise(resolve => setTimeout(resolve, 800))
 
-    // If it's a standing access or active session, we connect
     setActiveConnection({ target, schedule })
+    setConnecting(false)
+    setConnectionStatus('')
   }
 
   const handleDisconnect = () => {
@@ -96,7 +182,13 @@ export default function DashboardPage() {
         end_time: scheduleType === 'standing' ? new Date(new Date().setFullYear(new Date().getFullYear() + 100)).toISOString() : new Date(endTime).toISOString(),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         type: scheduleType,
-        account_type: accountType
+        account_type: accountType,
+        account_details: {
+          managed_account_id: accountType === 'managed' ? managedAccounts.find(a => a.sam_account_name === selectedManagedAccountId)?.id : undefined,
+          vault_secret_path: accountType === 'managed' ? managedAccounts.find(a => a.sam_account_name === selectedManagedAccountId)?.vault_secret_path : undefined,
+          ephemeral_prefix: accountType === 'ephemeral' ? ephemeralPrefix : undefined,
+          promotion_group: accountType === 'promotion' ? promotionGroup : undefined
+        }
       })
 
       setShowRequestModal(false)
@@ -259,7 +351,15 @@ export default function DashboardPage() {
                               {target?.name || 'Unknown'}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground ">
-                              {new Date(session.start_time).toLocaleString()}
+                              {new Date(session.start_time).toLocaleString(undefined, {
+                                timeZone: session.timezone || undefined,
+                                year: 'numeric',
+                                month: 'numeric',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: 'numeric',
+                              })}
+                              {session.timezone ? ` (${session.timezone})` : ''}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground ">
                               {duration} mins
@@ -356,10 +456,63 @@ export default function DashboardPage() {
                   className="w-full px-3 py-2 border border-input  rounded-lg bg-card  text-foreground "
                 >
                   <option value="static">Static Credential</option>
+                  <option value="managed">Managed Account</option>
                   <option value="ephemeral">Ephemeral Account</option>
-                  <option value="user_promotion">AD User Promotion</option>
+                  <option value="promotion">AD User Promotion</option>
                 </select>
               </div>
+
+              {accountType === 'managed' && (
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Select Account</label>
+                  <select
+                    value={selectedManagedAccountId}
+                    onChange={(e) => setSelectedManagedAccountId(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 border border-input rounded-lg bg-card text-foreground"
+                  >
+                    <option value="">Select a managed account...</option>
+                    {managedAccounts.map((acc) => (
+                      <option key={acc.id} value={acc.sam_account_name}>
+                        {acc.display_name} ({acc.sam_account_name})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {accountType === 'ephemeral' && (
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Username Prefix</label>
+                  <input
+                    type="text"
+                    value={ephemeralPrefix}
+                    onChange={(e) => setEphemeralPrefix(e.target.value)}
+                    placeholder="e.g. pam-user"
+                    className="w-full px-3 py-2 border border-input rounded-lg bg-card text-foreground"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    A temporary AD account will be created with this prefix (e.g., {ephemeralPrefix}-xxxx).
+                  </p>
+                </div>
+              )}
+
+              {accountType === 'promotion' && (
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Group to Promote To</label>
+                  <input
+                    type="text"
+                    value={promotionGroup}
+                    onChange={(e) => setPromotionGroup(e.target.value)}
+                    placeholder="e.g. Domain Admins"
+                    required
+                    className="w-full px-3 py-2 border border-input rounded-lg bg-card text-foreground"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Your AD account will be temporarily added to this group.
+                  </p>
+                </div>
+              )}
 
               {scheduleType === 'scheduled' && (
                 <>
@@ -404,6 +557,21 @@ export default function DashboardPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Connecting Overlay */}
+      {connecting && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-[100]">
+          <div className="flex flex-col items-center space-y-4 p-8 bg-card rounded-2xl shadow-2xl border border-border max-w-sm w-full animate-in fade-in zoom-in duration-300">
+            <div className="relative w-16 h-16">
+              <div className="absolute inset-0 border-4 border-indigo-500/20 rounded-full"></div>
+              <div className="absolute inset-0 border-4 border-indigo-500 rounded-full border-t-transparent animate-spin"></div>
+            </div>
+            <div className="text-center space-y-2">
+              <h3 className="text-lg font-semibold text-foreground">Initiating Session</h3>
+              <p className="text-sm text-muted-foreground animate-pulse">{connectionStatus}</p>
+            </div>
           </div>
         </div>
       )}

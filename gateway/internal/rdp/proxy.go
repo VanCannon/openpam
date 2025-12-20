@@ -20,19 +20,31 @@ import (
 
 // Proxy handles RDP protocol proxying via Apache Guacamole daemon
 type Proxy struct {
-	guacdAddress string
-	logger       *logger.Logger
-	recorder     *Recorder
-	monitor      *ssh.Monitor
+	guacdAddress  string
+	logger        *logger.Logger
+	recorder      *Recorder
+	asyncRecorder *AsyncRecorder
+	monitor       *ssh.Monitor
+	asyncMonitor  *AsyncMonitor
 }
 
-// NewProxy creates a new RDP proxy
+// NewProxy creates a new RDP proxy with legacy components
 func NewProxy(guacdAddress string, log *logger.Logger, recorder *Recorder, monitor *ssh.Monitor) *Proxy {
 	return &Proxy{
 		guacdAddress: guacdAddress,
 		logger:       log,
 		recorder:     recorder,
 		monitor:      monitor,
+	}
+}
+
+// NewProxyAsync creates a new RDP proxy with async components for enterprise scale
+func NewProxyAsync(guacdAddress string, log *logger.Logger, asyncRecorder *AsyncRecorder, asyncMonitor *AsyncMonitor) *Proxy {
+	return &Proxy{
+		guacdAddress:  guacdAddress,
+		logger:        log,
+		asyncRecorder: asyncRecorder,
+		asyncMonitor:  asyncMonitor,
 	}
 }
 
@@ -49,6 +61,13 @@ func (p *Proxy) Handle(
 	p.logger.Info("RDP Handle() called", map[string]interface{}{
 		"session_id": auditLog.ID.String(),
 		"target":     target.Hostname,
+	})
+
+	// DEBUG: Log credentials being used for RDP
+	p.logger.Info("DEBUG: RDP credentials", map[string]interface{}{
+		"username":     creds.Username,
+		"has_password": creds.Password != "",
+		"pwd_len":      len(creds.Password),
 	})
 
 	// Connect to guacd

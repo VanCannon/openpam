@@ -47,6 +47,7 @@ export default function Sidebar() {
     const isActive = (path: string) => pathname === path || pathname.startsWith(path + '/')
 
     const adminLinks = [
+        { href: '/admin/sessions', label: 'All Sessions', icon: LayoutDashboard },
         { href: '/admin/users', label: 'Users', icon: Users },
         { href: '/admin/groups', label: 'Groups', icon: Users },
         { href: '/admin/requests', label: 'Requests', icon: FileText },

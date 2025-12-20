@@ -20,6 +20,12 @@ type Config struct {
 	DevMode      bool // Enable development mode (bypasses EntraID auth)
 	Identity     IdentityConfig
 	Orchestrator OrchestratorConfig
+	Activity     ActivityConfig
+}
+
+// ActivityConfig holds Activity Service configuration
+type ActivityConfig struct {
+	URL string
 }
 
 // OrchestratorConfig holds Orchestrator Service configuration
@@ -140,6 +146,9 @@ func Load() (*Config, error) {
 		},
 		Orchestrator: OrchestratorConfig{
 			URL: getEnv("ORCHESTRATOR_URL", "http://localhost:8090"),
+		},
+		Activity: ActivityConfig{
+			URL: getEnv("ACTIVITY_URL", "http://localhost:8083"),
 		},
 	}
 

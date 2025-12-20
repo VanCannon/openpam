@@ -1,0 +1,31 @@
+* Host localhost:8080 was resolved.
+* IPv6: ::1
+* IPv4: 127.0.0.1
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0*   Trying [::1]:8080...
+* Connected to localhost (::1) port 8080
+> GET /api/ws/connect/ssh/a5ba1105-f8ad-4e7f-88d2-ca691b2a51d5 HTTP/1.1
+> Host: localhost:8080
+> User-Agent: curl/8.5.0
+> Accept: */*
+> Cookie: openpam_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiNGIzN2IyZGEtNjU4My00YWUyLTljNmUtZGE3NjhhYzcyYmNhIiwiZW1haWwiOiJhZG1pbkBleGFtcGxlLmNvbSIsImRpc3BsYXlfbmFtZSI6IkFkbWluIFVzZXIiLCJyb2xlIjoiYWRtaW4iLCJpc3MiOiJvcGVucGFtIiwic3ViIjoiNGIzN2IyZGEtNjU4My00YWUyLTljNmUtZGE3NjhhYzcyYmNhIiwiZXhwIjoxNzY1NzY3MTc5LCJuYmYiOjE3NjU3NjM1NzksImlhdCI6MTc2NTc2MzU3OSwianRpIjoiN2E3OTdjNDEtMmMzZS00NTAzLWFiNTAtOTI1ZjdhYjgxN2IxIn0.L7cf4wT1DPguYug7xHdr9I4BP_iClMpedZHAfTOAnU4
+> Connection: Upgrade
+> Upgrade: websocket
+> Sec-WebSocket-Key: SGVsbG8sIHdvcmxkIQ==
+> Sec-WebSocket-Version: 13
+> 
+< HTTP/1.1 400 Bad Request
+< Access-Control-Allow-Credentials: true
+< Access-Control-Allow-Headers: Content-Type, Authorization, Cache-Control
+< Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+< Access-Control-Allow-Origin: http://localhost:3000
+< Content-Type: text/plain; charset=utf-8
+< X-Content-Type-Options: nosniff
+< Date: Mon, 15 Dec 2025 01:52:59 GMT
+< Content-Length: 18
+< 
+{ [18 bytes data]
+Protocol mismatch
+100    18  100    18    0     0  16071      0 --:--:-- --:--:-- --:--:-- 18000
+* Connection #0 to host localhost left intact

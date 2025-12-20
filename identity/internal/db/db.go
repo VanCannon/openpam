@@ -48,12 +48,16 @@ type User struct {
 }
 
 type ManagedAccount struct {
-	ID          string `json:"id"`
-	EntraID     string `json:"entra_id"`
-	Email       string `json:"email"`
-	DisplayName string `json:"display_name"`
-	Source      string `json:"source"`
-	CreatedAt   string `json:"created_at"`
+	ID              string `json:"id"`
+	EntraID         string `json:"entra_id"`
+	Email           string `json:"email"`
+	DisplayName     string `json:"display_name"`
+	Source          string `json:"source"`
+	Status          string `json:"status"`
+	VaultSecretPath string `json:"vault_secret_path"`
+	CreatedAt       string `json:"created_at"`
+	SAMAccountName  string `json:"sam_account_name"`
+	DN              string `json:"dn"`
 }
 
 type Computer struct {
@@ -197,6 +201,8 @@ func createTables() error {
 		email TEXT NOT NULL,
 		display_name TEXT,
 		source TEXT DEFAULT 'active_directory',
+		status TEXT DEFAULT 'Active',
+		vault_secret_path TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 
@@ -272,6 +278,12 @@ func createTables() error {
 	_, _ = DB.Exec(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS description TEXT`)
 	_, _ = DB.Exec(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'`)
 	_, _ = DB.Exec(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'active_directory'`)
+
+	// Migration: Add vault_secret_path to managed_accounts
+	_, _ = DB.Exec(`ALTER TABLE managed_accounts ADD COLUMN IF NOT EXISTS vault_secret_path TEXT`)
+
+	// Migration: Add status to managed_accounts
+	_, _ = DB.Exec(`ALTER TABLE managed_accounts ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Active'`)
 
 	return nil
 }
@@ -444,13 +456,15 @@ func SaveUsers(users []User) error {
 
 func SaveManagedAccounts(accounts []ManagedAccount) error {
 	stmt, err := DB.Prepare(`
-		INSERT INTO managed_accounts (id, entra_id, email, display_name, source)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO managed_accounts (id, entra_id, email, display_name, source, status, vault_secret_path)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (id) DO UPDATE SET
 		entra_id = EXCLUDED.entra_id,
 		email = EXCLUDED.email,
 		display_name = EXCLUDED.display_name,
-		source = EXCLUDED.source
+		source = EXCLUDED.source,
+		status = EXCLUDED.status,
+		vault_secret_path = EXCLUDED.vault_secret_path
 	`)
 	if err != nil {
 		return err
@@ -458,7 +472,7 @@ func SaveManagedAccounts(accounts []ManagedAccount) error {
 	defer stmt.Close()
 
 	for _, a := range accounts {
-		_, err := stmt.Exec(a.ID, a.EntraID, a.Email, a.DisplayName, a.Source)
+		_, err := stmt.Exec(a.ID, a.EntraID, a.Email, a.DisplayName, a.Source, a.Status, a.VaultSecretPath)
 		if err != nil {
 			log.Printf("Failed to save managed account %s (%s): %v", a.Email, a.ID, err)
 		}
@@ -522,7 +536,13 @@ func GetUsers() ([]User, error) {
 }
 
 func GetManagedAccounts() ([]ManagedAccount, error) {
-	rows, err := DB.Query(`SELECT id, entra_id, email, display_name, source, created_at FROM managed_accounts`)
+	// JOIN with ad_users to get sam_account_name and dn
+	rows, err := DB.Query(`
+		SELECT m.id, m.entra_id, m.email, m.display_name, m.source, m.status, m.vault_secret_path, m.created_at,
+		       COALESCE(a.sam_account_name, ''), COALESCE(a.dn, '')
+		FROM managed_accounts m
+		LEFT JOIN ad_users a ON m.id = a.id
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -531,8 +551,16 @@ func GetManagedAccounts() ([]ManagedAccount, error) {
 	var accounts []ManagedAccount
 	for rows.Next() {
 		var a ManagedAccount
-		if err := rows.Scan(&a.ID, &a.EntraID, &a.Email, &a.DisplayName, &a.Source, &a.CreatedAt); err != nil {
+		var vaultPath sql.NullString
+		var status sql.NullString
+		if err := rows.Scan(&a.ID, &a.EntraID, &a.Email, &a.DisplayName, &a.Source, &status, &vaultPath, &a.CreatedAt, &a.SAMAccountName, &a.DN); err != nil {
 			return nil, err
+		}
+		if vaultPath.Valid {
+			a.VaultSecretPath = vaultPath.String
+		}
+		if status.Valid {
+			a.Status = status.String
 		}
 		accounts = append(accounts, a)
 	}
@@ -632,4 +660,9 @@ func SaveTargets(targets []Target) error {
 		}
 	}
 	return nil
+}
+
+func DeleteManagedAccount(id string) error {
+	_, err := DB.Exec("DELETE FROM managed_accounts WHERE id = $1", id)
+	return err
 }

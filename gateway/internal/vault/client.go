@@ -126,6 +126,33 @@ func (c *Client) GetCredentials(ctx context.Context, path string) (*Credentials,
 	return creds, nil
 }
 
+// WriteCredentials stores credentials in Vault at the specified path
+func (c *Client) WriteCredentials(ctx context.Context, path string, creds *Credentials) error {
+	// Simple heuristic for KV v2 on "secret/" mount
+	// If path starts with "secret/" and doesn't have "data", add it.
+	// Real implementation should probably check mount version, but this covers the dev setup.
+	if len(path) > 7 && path[:7] == "secret/" {
+		if len(path) < 12 || path[7:12] != "data/" {
+			path = "secret/data/" + path[7:]
+		}
+	}
+
+	data := map[string]interface{}{
+		"data": map[string]interface{}{
+			"username":    creds.Username,
+			"password":    creds.Password,
+			"private_key": creds.PrivateKey,
+		},
+	}
+
+	_, err := c.client.Logical().WriteWithContext(ctx, path, data)
+	if err != nil {
+		return fmt.Errorf("failed to write secret: %w", err)
+	}
+
+	return nil
+}
+
 // HealthCheck verifies the Vault connection is healthy
 func (c *Client) HealthCheck(ctx context.Context) error {
 	health, err := c.client.Sys().HealthWithContext(ctx)

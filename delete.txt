@@ -1,0 +1,26 @@
+* Host localhost:8080 was resolved.
+* IPv6: ::1
+* IPv4: 127.0.0.1
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0*   Trying [::1]:8080...
+* Connected to localhost (::1) port 8080
+> DELETE /api/v1/schedules/f1bc94f4-83f0-4a62-8ada-82e30afc8afb HTTP/1.1
+> Host: localhost:8080
+> User-Agent: curl/8.5.0
+> Accept: */*
+> Cookie: openpam_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiNGIzN2IyZGEtNjU4My00YWUyLTljNmUtZGE3NjhhYzcyYmNhIiwiZW1haWwiOiJhZG1pbkBleGFtcGxlLmNvbSIsImRpc3BsYXlfbmFtZSI6IkFkbWluIFVzZXIiLCJyb2xlIjoiYWRtaW4iLCJpc3MiOiJvcGVucGFtIiwic3ViIjoiNGIzN2IyZGEtNjU4My00YWUyLTljNmUtZGE3NjhhYzcyYmNhIiwiZXhwIjoxNzY1NzY3MTc5LCJuYmYiOjE3NjU3NjM1NzksImlhdCI6MTc2NTc2MzU3OSwianRpIjoiN2E3OTdjNDEtMmMzZS00NTAzLWFiNTAtOTI1ZjdhYjgxN2IxIn0.L7cf4wT1DPguYug7xHdr9I4BP_iClMpedZHAfTOAnU4
+> 
+< HTTP/1.1 200 OK
+< Access-Control-Allow-Credentials: true
+< Access-Control-Allow-Headers: Content-Type, Authorization, Cache-Control
+< Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+< Access-Control-Allow-Origin: http://localhost:3000
+< Content-Type: application/json
+< Date: Mon, 15 Dec 2025 01:52:59 GMT
+< Content-Length: 59
+< 
+{ [59 bytes data]
+100    59  100    59    0     0  24220      0 --:--:-- --:--:-- --:--:-- 29500
+* Connection #0 to host localhost left intact
+{"message":"Schedule deleted successfully","success":true}

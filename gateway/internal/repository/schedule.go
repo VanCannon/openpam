@@ -158,57 +158,151 @@ func (r *ScheduleRepository) UpdateScheduleDetails(ctx context.Context, id uuid.
 	return err
 }
 
-// UpdatePendingToActive updates pending/approved schedules to active if start time has passed
-func (r *ScheduleRepository) UpdatePendingToActive(ctx context.Context) error {
-	query := `
-		UPDATE schedules 
-		SET status = $1, updated_at = $2 
-		WHERE (status = $3 OR (status = $4 AND approval_status = $5))
-		AND start_time <= $6
-		AND type = 'scheduled'
-	`
-	// Status: Active
-	// Where: (Pending OR (Pending AND Approved)) -- actually logic is:
-	// We want to activate schedules that are:
-	// 1. Status is 'pending' (which is default)
-	// 2. ApprovalStatus is 'approved'
-	// 3. StartTime <= Now
+// UpdateAccountDetails updates the account details of a schedule
+func (r *ScheduleRepository) UpdateAccountDetails(ctx context.Context, id uuid.UUID, details models.JSONB) error {
+	query := `UPDATE schedules SET account_details = $1, updated_at = $2 WHERE id = $3`
+	_, err := r.db.ExecContext(ctx, query, details, time.Now(), id)
+	return err
+}
 
-	// Correct query:
-	query = `
-		UPDATE schedules 
-		SET status = $1, updated_at = $2 
-		WHERE status = $3 
+// UpdatePendingToActive updates pending/approved schedules to active if start time has passed
+func (r *ScheduleRepository) UpdatePendingToActive(ctx context.Context) ([]*models.Schedule, error) {
+	query := `
+		UPDATE schedules
+		SET status = $1, updated_at = $2
+		WHERE status = $3
 		AND approval_status = $4
 		AND start_time <= $5
 		AND type = 'scheduled'
+		RETURNING id, user_id, target_id, start_time, end_time, status, approval_status,
+		          approved_by, approved_at, created_at, updated_at, timezone, type, account_type, rejection_reason, account_details
 	`
 
-	_, err := r.db.ExecContext(ctx, query,
+	rows, err := r.db.QueryContext(ctx, query,
 		models.ScheduleStatusActive,
 		time.Now(),
 		models.ScheduleStatusPending,
 		models.ApprovalStatusApproved,
 		time.Now(),
 	)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var schedules []*models.Schedule
+	for rows.Next() {
+		var s models.Schedule
+		if err := rows.Scan(
+			&s.ID,
+			&s.UserID,
+			&s.TargetID,
+			&s.StartTime,
+			&s.EndTime,
+			&s.Status,
+			&s.ApprovalStatus,
+			&s.ApprovedBy,
+			&s.ApprovedAt,
+			&s.CreatedAt,
+			&s.UpdatedAt,
+			&s.Timezone,
+			&s.Type,
+			&s.AccountType,
+			&s.RejectionReason,
+			&s.AccountDetails,
+		); err != nil {
+			return nil, err
+		}
+		schedules = append(schedules, &s)
+	}
+
+	return schedules, rows.Err()
 }
 
 // UpdateActiveToExpired updates active schedules to expired/completed if end time has passed
-func (r *ScheduleRepository) UpdateActiveToExpired(ctx context.Context) error {
+func (r *ScheduleRepository) UpdateActiveToExpired(ctx context.Context) ([]*models.Schedule, error) {
 	query := `
-		UPDATE schedules 
-		SET status = $1, updated_at = $2 
-		WHERE status = $3 
+		UPDATE schedules
+		SET status = $1, updated_at = $2
+		WHERE status = $3
 		AND end_time <= $4
 		AND type = 'scheduled'
+		RETURNING id, user_id, target_id, start_time, end_time, status, approval_status,
+		          approved_by, approved_at, created_at, updated_at, timezone, type, account_type, rejection_reason, account_details
 	`
 
-	_, err := r.db.ExecContext(ctx, query,
+	rows, err := r.db.QueryContext(ctx, query,
 		models.ScheduleStatusExpired,
 		time.Now(),
 		models.ScheduleStatusActive,
 		time.Now(),
 	)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var schedules []*models.Schedule
+	for rows.Next() {
+		var s models.Schedule
+		if err := rows.Scan(
+			&s.ID,
+			&s.UserID,
+			&s.TargetID,
+			&s.StartTime,
+			&s.EndTime,
+			&s.Status,
+			&s.ApprovalStatus,
+			&s.ApprovedBy,
+			&s.ApprovedAt,
+			&s.CreatedAt,
+			&s.UpdatedAt,
+			&s.Timezone,
+			&s.Type,
+			&s.AccountType,
+			&s.RejectionReason,
+			&s.AccountDetails,
+		); err != nil {
+			return nil, err
+		}
+		schedules = append(schedules, &s)
+	}
+
+	return schedules, rows.Err()
+}
+
+// GetManagedAccountADDetails retrieves AD details for a managed account
+func (r *ScheduleRepository) GetManagedAccountADDetails(ctx context.Context, managedAccountID string) (samAccountName, dn, vaultPath string, err error) {
+	query := `
+		SELECT a.sam_account_name, a.dn, m.vault_secret_path
+		FROM ad_users a
+		JOIN managed_accounts m ON a.id = m.id
+		WHERE m.id = $1
+	`
+	err = r.db.QueryRowContext(ctx, query, managedAccountID).Scan(&samAccountName, &dn, &vaultPath)
+	return
+}
+
+// GetManagedAccountADDetailsByPath retrieves AD details for a managed account by its vault secret path
+func (r *ScheduleRepository) GetManagedAccountADDetailsByPath(ctx context.Context, vaultPath string) (samAccountName, dn, id string, err error) {
+	query := `
+		SELECT a.sam_account_name, a.dn, m.id
+		FROM ad_users a
+		JOIN managed_accounts m ON a.id = m.id
+		WHERE m.vault_secret_path = $1
+	`
+	err = r.db.QueryRowContext(ctx, query, vaultPath).Scan(&samAccountName, &dn, &id)
+	return
+}
+
+// GetManagedAccountADDetailsByName retrieves AD details for a managed account by its sAMAccountName
+func (r *ScheduleRepository) GetManagedAccountADDetailsByName(ctx context.Context, name string) (samAccountName, dn, id string, err error) {
+	query := `
+		SELECT a.sam_account_name, a.dn, m.id
+		FROM ad_users a
+		JOIN managed_accounts m ON a.id = m.id
+		WHERE a.sam_account_name = $1
+	`
+	err = r.db.QueryRowContext(ctx, query, name).Scan(&samAccountName, &dn, &id)
+	return
 }

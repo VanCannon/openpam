@@ -100,10 +100,28 @@ export interface ListResponse<T> {
   schedules?: T[]
   logs?: T[]
   sessions?: T[]
+  accounts?: T[]
   total?: number
   count?: number
   page?: number
   page_size?: number
   limit?: number
   offset?: number
+}
+
+export interface ManagedAccount {
+  id: string
+  sam_account_name: string
+  user_principal_name?: string
+  entra_id?: string
+  email?: string
+  display_name: string
+  dn: string
+  description?: string
+  assigned_to?: string
+  source?: string
+  status: string
+  vault_secret_path?: string
+  created_at?: string
+  updated_at?: string
 }

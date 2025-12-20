@@ -64,6 +64,10 @@ const nextConfig = {
         destination: 'http://localhost:8082/api/v1/managed-accounts',
       },
       {
+        source: '/api/v1/managed-accounts/:path*',
+        destination: 'http://localhost:8082/api/v1/managed-accounts/:path*',
+      },
+      {
         source: '/api/v1/orchestrator/:path*',
         destination: 'http://localhost:8090/api/v1/orchestrator/:path*',
       },
@@ -102,6 +106,10 @@ const nextConfig = {
       {
         source: '/api/v1/credentials/:path*',
         destination: 'http://localhost:8080/api/v1/credentials/:path*',
+      },
+      {
+        source: '/api/v1/secrets',
+        destination: 'http://localhost:8080/api/v1/secrets',
       },
       {
         source: '/api/v1/audit-logs',
