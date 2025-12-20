@@ -80,6 +80,8 @@ func RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/v1/activity/ephemeral/delete", HandleDeleteEphemeral).Methods("POST")
 
 	// User Promotion
+	r.HandleFunc("/api/v1/activity/promotion/lookup-user-dn", HandleLookupUserDN).Methods("POST")
+	r.HandleFunc("/api/v1/activity/promotion/check-membership", HandleCheckMembership).Methods("POST")
 	r.HandleFunc("/api/v1/activity/promotion/promote", HandlePromoteUser).Methods("POST")
 	r.HandleFunc("/api/v1/activity/promotion/demote", HandleDemoteUser).Methods("POST")
 }
@@ -368,6 +370,78 @@ func HandleDeleteEphemeral(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respond(w, http.StatusOK, map[string]string{"status": "success", "message": "Ephemeral account deleted"})
+}
+
+// LookupUserDNRequest is the request body for looking up a user's DN
+type LookupUserDNRequest struct {
+	SAMAccountName string `json:"sam_account_name"`
+}
+
+func HandleLookupUserDN(w http.ResponseWriter, r *http.Request) {
+	var req LookupUserDNRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.SAMAccountName == "" {
+		respondError(w, http.StatusBadRequest, "sam_account_name is required")
+		return
+	}
+
+	adClient, err := getADClient()
+	if err != nil {
+		log.Printf("Failed to connect to AD: %v", err)
+		respondError(w, http.StatusInternalServerError, "Failed to connect to directory service")
+		return
+	}
+	defer adClient.Close()
+
+	userDN, err := adClient.GetUserDN(req.SAMAccountName)
+	if err != nil {
+		log.Printf("Failed to find user DN for %s: %v", req.SAMAccountName, err)
+		respondError(w, http.StatusNotFound, "User not found in AD")
+		return
+	}
+
+	respond(w, http.StatusOK, map[string]string{
+		"dn":               userDN,
+		"sam_account_name": req.SAMAccountName,
+	})
+}
+
+func HandleCheckMembership(w http.ResponseWriter, r *http.Request) {
+	var req PromotionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.UserDN == "" || req.GroupDN == "" {
+		respondError(w, http.StatusBadRequest, "UserDN and GroupDN are required")
+		return
+	}
+
+	adClient, err := getADClient()
+	if err != nil {
+		log.Printf("Failed to connect to AD: %v", err)
+		respondError(w, http.StatusInternalServerError, "Failed to connect to directory service")
+		return
+	}
+	defer adClient.Close()
+
+	isMember, err := adClient.IsGroupMember(req.GroupDN, req.UserDN)
+	if err != nil {
+		log.Printf("Failed to check group membership for %s in %s: %v", req.UserDN, req.GroupDN, err)
+		respondError(w, http.StatusInternalServerError, "Failed to check group membership")
+		return
+	}
+
+	respond(w, http.StatusOK, map[string]interface{}{
+		"is_member": isMember,
+		"user_dn":   req.UserDN,
+		"group_dn":  req.GroupDN,
+	})
 }
 
 func HandlePromoteUser(w http.ResponseWriter, r *http.Request) {

@@ -353,18 +353,23 @@ class ApiClient {
   }
 
   // WebSocket URL for connections
-  getWebSocketUrl(protocol: string, targetId: string, credentialId: string): string {
+  getWebSocketUrl(protocol: string, targetId: string, credentialId: string, password?: string): string {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080'
     // Defensive fix for potential undefined in credentialId
     const cleanCredId = credentialId.replace('?undefined', '')
     let url = `${wsUrl}/api/ws/connect/${protocol}/${targetId}?credential_id=${cleanCredId}`
+
+    // Append password if provided (for promotion accounts)
+    if (password) {
+      url += `&password=${encodeURIComponent(password)}`
+    }
 
     // Append auth token if available (required for WebSockets as they don't send headers)
     if (this.token) {
       url += `&token=${this.token}`
     }
 
-    console.log('Generated WebSocket URL:', url)
+    console.log('Generated WebSocket URL:', url.replace(/password=[^&]+/, 'password=***'))
     return url
   }
 }

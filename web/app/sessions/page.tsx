@@ -18,7 +18,7 @@ export default function DashboardPage() {
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [loadingData, setLoadingData] = useState(true)
-  const [activeConnection, setActiveConnection] = useState<{ target: Target; credential?: Credential; schedule?: Schedule } | null>(null)
+  const [activeConnection, setActiveConnection] = useState<{ target: Target; credential?: Credential; schedule?: Schedule; promotionPassword?: string } | null>(null)
 
   // Request Modal State
   const [showRequestModal, setShowRequestModal] = useState(false)
@@ -36,6 +36,10 @@ export default function DashboardPage() {
   const [promotionGroup, setPromotionGroup] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState('')
+  // Password prompt for promotion accounts
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [promotionPassword, setPromotionPassword] = useState('')
+  const [pendingPromotionSchedule, setPendingPromotionSchedule] = useState<Schedule | null>(null)
 
   useEffect(() => {
     if (!loading && !user) {
@@ -51,7 +55,7 @@ export default function DashboardPage() {
     // Use SSE for real-time schedule updates with auto-reconnect
     const token = localStorage.getItem('openpam_token')
     if (!token) {
-      console.error('No auth token found for SSE')
+      // Token not available yet, skip SSE connection
       return
     }
 
@@ -147,21 +151,46 @@ export default function DashboardPage() {
     }
   }
 
-  const handleConnect = async (schedule: Schedule) => {
+  const handleConnect = async (schedule: Schedule, password?: string) => {
     const target = targets.find(t => t.id === schedule.target_id)
     if (!target) return
+
+    // For promotion accounts, prompt for password if not provided
+    if (schedule.account_type === 'promotion' && !password) {
+      setPendingPromotionSchedule(schedule)
+      setShowPasswordModal(true)
+      return
+    }
 
     setConnecting(true)
     if (schedule.account_type === 'managed') {
       setConnectionStatus('Enabling Managed Account in Active Directory...')
       await new Promise(resolve => setTimeout(resolve, 1500))
+    } else if (schedule.account_type === 'promotion') {
+      setConnectionStatus('Promoting user to Domain Admins...')
+      await new Promise(resolve => setTimeout(resolve, 1000))
     }
     setConnectionStatus('Establishing secure connection...')
     await new Promise(resolve => setTimeout(resolve, 800))
 
-    setActiveConnection({ target, schedule })
+    setActiveConnection({ target, schedule, promotionPassword: password })
     setConnecting(false)
     setConnectionStatus('')
+  }
+
+  const handlePasswordSubmit = () => {
+    if (pendingPromotionSchedule && promotionPassword) {
+      setShowPasswordModal(false)
+      handleConnect(pendingPromotionSchedule, promotionPassword)
+      setPromotionPassword('')
+      setPendingPromotionSchedule(null)
+    }
+  }
+
+  const handlePasswordCancel = () => {
+    setShowPasswordModal(false)
+    setPromotionPassword('')
+    setPendingPromotionSchedule(null)
   }
 
   const handleDisconnect = () => {
@@ -223,7 +252,8 @@ export default function DashboardPage() {
     const wsUrl = api.getWebSocketUrl(
       activeConnection.target.protocol,
       activeConnection.target.id,
-      'session-' + activeConnection.schedule?.id // Hack: Pass session ID as credential ID for now
+      'session-' + activeConnection.schedule?.id, // Hack: Pass session ID as credential ID for now
+      activeConnection.promotionPassword // Pass password for promotion accounts
     )
 
     return (
@@ -571,6 +601,42 @@ export default function DashboardPage() {
             <div className="text-center space-y-2">
               <h3 className="text-lg font-semibold text-foreground">Initiating Session</h3>
               <p className="text-sm text-muted-foreground animate-pulse">{connectionStatus}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Password Modal for Promotion Accounts */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-xl shadow-2xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-foreground mb-4">Enter Your Password</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              This session requires your AD password for authentication.
+            </p>
+            <input
+              type="password"
+              value={promotionPassword}
+              onChange={(e) => setPromotionPassword(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handlePasswordSubmit()}
+              placeholder="Enter your password"
+              className="w-full px-4 py-2 border border-border rounded-lg bg-background text-foreground mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              autoFocus
+            />
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={handlePasswordCancel}
+                className="px-4 py-2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePasswordSubmit}
+                disabled={!promotionPassword}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+              >
+                Connect
+              </button>
             </div>
           </div>
         </div>

@@ -360,6 +360,35 @@ func (c *Client) RemoveGroupMember(groupDN, userDN string) error {
 	return nil
 }
 
+// IsGroupMember checks if a user is a member of a group
+func (c *Client) IsGroupMember(groupDN, userDN string) (bool, error) {
+	searchRequest := ldap.NewSearchRequest(
+		groupDN,
+		ldap.ScopeBaseObject, ldap.NeverDerefAliases, 0, 0, false,
+		"(objectClass=*)",
+		[]string{"member"},
+		nil,
+	)
+
+	sr, err := c.Conn.Search(searchRequest)
+	if err != nil {
+		return false, fmt.Errorf("failed to search group: %v", err)
+	}
+
+	if len(sr.Entries) == 0 {
+		return false, fmt.Errorf("group not found")
+	}
+
+	members := sr.Entries[0].GetAttributeValues("member")
+	for _, member := range members {
+		if member == userDN {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // CreateUser creates a new user (Ephemeral)
 func (c *Client) CreateUser(username, password, description string) (string, error) {
 	// Construct DN: CN=username,CN=Users,BaseDN (Simplification: putting in Users container)

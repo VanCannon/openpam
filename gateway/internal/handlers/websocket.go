@@ -391,15 +391,109 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 			})
 		} else if validSchedule.AccountType == "promotion" {
 			// For promotion, user uses their own AD credentials.
-			// Ideally prompt user, or user supplied them during connection handshake (not supported yet).
-			// We populate username so Guacamole can pre-fill it.
+			// Check if they need to be temporarily added to Domain Admins for this session.
 			username, ok := validSchedule.AccountDetails["sam_account_name"].(string)
-			if !ok {
-				username = userEmail // Fallback to email/UPN
+			if !ok || username == "" {
+				// Try to get username from email (take part before @)
+				if userEmail != "" {
+					username = userEmail
+					if atIdx := strings.Index(username, "@"); atIdx > 0 {
+						username = username[:atIdx]
+					}
+				}
 			}
+
+			// If still empty, try to extract from display name (first word)
+			if username == "" {
+				// Get display name from JWT claims (set by auth middleware)
+				displayName := middleware.GetDisplayName(ctx)
+				if displayName != "" {
+					// Use display name as the username (for AD, often the sAMAccountName)
+					// Take first word if it's "John User" format, otherwise use as-is
+					if spaceIdx := strings.Index(displayName, " "); spaceIdx > 0 {
+						username = displayName[:spaceIdx]
+					} else {
+						username = displayName
+					}
+					h.logger.Info("Using display name for promotion username", map[string]interface{}{
+						"display_name": displayName,
+						"username":     username,
+					})
+				}
+			}
+
+			if username == "" {
+				h.logger.Error("Cannot determine username for promotion", map[string]interface{}{
+					"user_id":    userID,
+					"user_email": userEmail,
+				})
+				http.Error(w, "Cannot determine username for promotion", http.StatusBadRequest)
+				return
+			}
+
+			// Get user DN from AD
+			userDN, err := h.getUserDN(ctx, username)
+			if err != nil {
+				h.logger.Error("Failed to get user DN for promotion", map[string]interface{}{
+					"username": username,
+					"error":    err.Error(),
+				})
+				http.Error(w, "Failed to resolve user in AD", http.StatusInternalServerError)
+				return
+			}
+
+			// Check if user is already in Domain Admins
+			wasAlreadyMember, err := h.checkGroupMembership(ctx, userDN)
+			if err != nil {
+				h.logger.Warn("Failed to check group membership, assuming not a member", map[string]interface{}{
+					"user_dn": userDN,
+					"error":   err.Error(),
+				})
+				wasAlreadyMember = false
+			}
+
+			if !wasAlreadyMember {
+				// Promote user to Domain Admins
+				if err := h.promoteUser(ctx, userDN); err != nil {
+					h.logger.Error("Failed to promote user to Domain Admins", map[string]interface{}{
+						"user_dn": userDN,
+						"error":   err.Error(),
+					})
+					http.Error(w, "Failed to promote user for session", http.StatusInternalServerError)
+					return
+				}
+				h.logger.Info("User promoted to Domain Admins for session", map[string]interface{}{
+					"username": username,
+					"user_dn":  userDN,
+				})
+
+				// Wait for AD propagation
+				time.Sleep(2 * time.Second)
+
+				// Schedule demotion after session ends
+				defer func(dn string) {
+					cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+
+					h.logger.Info("Demoting user from Domain Admins after session", map[string]interface{}{
+						"user_dn": dn,
+					})
+
+					if err := h.demoteUser(cleanupCtx, dn); err != nil {
+						h.logger.Error("Cleanup: failed to demote user", map[string]interface{}{"error": err.Error()})
+					}
+				}(userDN)
+			} else {
+				h.logger.Info("User already in Domain Admins, skipping promotion/demotion", map[string]interface{}{
+					"username": username,
+				})
+			}
+
+			// For promotion, use password from URL query parameter
+			promotionPassword := r.URL.Query().Get("password")
 			vaultCreds = &vault.Credentials{
 				Username: username,
-				// Password empty - Guacamole should prompt
+				Password: promotionPassword,
 			}
 		} else {
 			// Fallback to legacy static credentials (target-based)
@@ -714,4 +808,154 @@ func (h *ConnectionHandler) createEphemeralAccount(ctx context.Context, prefix s
 func (h *ConnectionHandler) deleteEphemeralAccount(ctx context.Context, samAccountName, dn string) error {
 	h.logger.Info("Deleting ephemeral AD account", map[string]interface{}{"sam_account_name": samAccountName})
 	return h.callActivityService(ctx, "/api/v1/activity/ephemeral/delete", samAccountName, dn, "")
+}
+
+// getUserDN looks up a user's DN via the Activity service
+func (h *ConnectionHandler) getUserDN(ctx context.Context, username string) (string, error) {
+	if h.activityURL == "" {
+		return "", fmt.Errorf("activity service URL not configured")
+	}
+
+	payload := map[string]string{
+		"sam_account_name": username,
+	}
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", h.activityURL+"/api/v1/activity/promotion/lookup-user-dn", bytes.NewBuffer(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("activity service returned status: %s", resp.Status)
+	}
+
+	var result struct {
+		DN string `json:"dn"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	return result.DN, nil
+}
+
+// checkGroupMembership checks if user is in Domain Admins via Activity service
+func (h *ConnectionHandler) checkGroupMembership(ctx context.Context, userDN string) (bool, error) {
+	if h.activityURL == "" {
+		return false, fmt.Errorf("activity service URL not configured")
+	}
+
+	baseDN := "DC=vancannon,DC=com" // TODO: get from config
+	domainAdminsDN := fmt.Sprintf("CN=Domain Admins,CN=Users,%s", baseDN)
+
+	payload := map[string]string{
+		"user_dn":  userDN,
+		"group_dn": domainAdminsDN,
+	}
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", h.activityURL+"/api/v1/activity/promotion/check-membership", bytes.NewBuffer(body))
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("activity service returned status: %s", resp.Status)
+	}
+
+	var result struct {
+		IsMember bool `json:"is_member"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false, err
+	}
+
+	return result.IsMember, nil
+}
+
+// promoteUser adds user to Domain Admins via Activity service
+func (h *ConnectionHandler) promoteUser(ctx context.Context, userDN string) error {
+	if h.activityURL == "" {
+		return fmt.Errorf("activity service URL not configured")
+	}
+
+	baseDN := "DC=vancannon,DC=com" // TODO: get from config
+	domainAdminsDN := fmt.Sprintf("CN=Domain Admins,CN=Users,%s", baseDN)
+
+	payload := map[string]string{
+		"user_dn":  userDN,
+		"group_dn": domainAdminsDN,
+	}
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", h.activityURL+"/api/v1/activity/promotion/promote", bytes.NewBuffer(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("activity service returned status: %s", resp.Status)
+	}
+
+	return nil
+}
+
+// demoteUser removes user from Domain Admins via Activity service
+func (h *ConnectionHandler) demoteUser(ctx context.Context, userDN string) error {
+	if h.activityURL == "" {
+		return fmt.Errorf("activity service URL not configured")
+	}
+
+	baseDN := "DC=vancannon,DC=com" // TODO: get from config
+	domainAdminsDN := fmt.Sprintf("CN=Domain Admins,CN=Users,%s", baseDN)
+
+	payload := map[string]string{
+		"user_dn":  userDN,
+		"group_dn": domainAdminsDN,
+	}
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", h.activityURL+"/api/v1/activity/promotion/demote", bytes.NewBuffer(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("activity service returned status: %s", resp.Status)
+	}
+
+	return nil
 }
