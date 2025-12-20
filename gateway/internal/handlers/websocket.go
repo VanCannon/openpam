@@ -233,117 +233,162 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 		var vaultCreds *vault.Credentials
 		var legacyCredID *uuid.UUID
 
-		if validSchedule.AccountType == "managed" || validSchedule.AccountType == "ephemeral" {
+		if validSchedule.AccountType == "managed" {
 			vaultPath, _ := validSchedule.AccountDetails["vault_secret_path"].(string)
 			managedAccountID, _ := validSchedule.AccountDetails["managed_account_id"].(string)
 
 			var samAccountName, dn string
 
-			// Handle Managed Account lifecycle (Enable/Disable/Rotate)
-			if validSchedule.AccountType == "managed" {
-				// Attempt to get AD details (this also returns vault_secret_path if it was missing)
-				var dbVaultPath string
-				samAccountName, dn, dbVaultPath, err = h.scheduleRepo.GetManagedAccountADDetails(ctx, managedAccountID)
-				if err != nil || samAccountName == "" {
-					// Fallback 1: Try searching by vault path (if provided in details)
-					if vaultPath != "" {
-						h.logger.Warn("Managed account ID lookup failed, trying vault path search", map[string]interface{}{
-							"managed_account_id": managedAccountID,
-							"vault_path":         vaultPath,
-						})
-						var pathErr error
-						samAccountName, dn, _, pathErr = h.scheduleRepo.GetManagedAccountADDetailsByPath(ctx, vaultPath)
-						if pathErr != nil {
-							h.logger.Error("Failed to resolve AD details by vault path", map[string]interface{}{"vault_path": vaultPath, "error": pathErr.Error()})
-						}
-					}
-
-					// Fallback 2: Try searching by name (in case ID is actually a name)
-					if samAccountName == "" && managedAccountID != "" {
-						h.logger.Warn("Managed account search by ID/Path failed, trying name search", map[string]interface{}{
-							"name": managedAccountID,
-						})
-						var nameErr error
-						samAccountName, dn, _, nameErr = h.scheduleRepo.GetManagedAccountADDetailsByName(ctx, managedAccountID)
-						if nameErr != nil {
-							h.logger.Error("Failed to resolve AD details by name", map[string]interface{}{"name": managedAccountID, "error": nameErr.Error()})
-						}
-					}
-				}
-
-				// If we found a path in the database, use it if we didn't have one
-				if vaultPath == "" && dbVaultPath != "" {
-					vaultPath = dbVaultPath
-				}
-
-				if samAccountName != "" && dn != "" {
-					// Enable account before session
-					if err := h.enableAccount(ctx, samAccountName, dn); err != nil {
-						h.logger.Error("Failed to enable managed account", map[string]interface{}{
-							"sam_account_name": samAccountName,
-							"error":            err.Error(),
-						})
-						http.Error(w, "Failed to activate account in AD", http.StatusInternalServerError)
-						return
-					}
-
-					// Wait for AD to propagate the enable operation before attempting RDP connection
-					// DEBUG: 30 second delay to allow manual verification in AD
-					h.logger.Info("DEBUG: Account should be enabled now. Check AD Users and Computers! Waiting 30 seconds...", map[string]interface{}{
-						"sam_account_name": samAccountName,
-						"dn":               dn,
-						"delay_seconds":    2,
+			// Attempt to get AD details (this also returns vault_secret_path if it was missing)
+			var dbVaultPath string
+			samAccountName, dn, dbVaultPath, err = h.scheduleRepo.GetManagedAccountADDetails(ctx, managedAccountID)
+			if err != nil || samAccountName == "" {
+				// Fallback 1: Try searching by vault path (if provided in details)
+				if vaultPath != "" {
+					h.logger.Warn("Managed account ID lookup failed, trying vault path search", map[string]interface{}{
+						"managed_account_id": managedAccountID,
+						"vault_path":         vaultPath,
 					})
-					time.Sleep(2 * time.Second)
-					h.logger.Info("DEBUG: Continuing with RDP connection...", nil)
-
-					// Schedule rotation and disablement after session ends
-					// Note: Using a closure to capture the LATEST samAccountName and dn if fallback occurred
-					defer func(sName, d string, vPath string) {
-						cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-						defer cancel()
-
-						h.logger.Info("Starting session end tasks for managed account", map[string]interface{}{
-							"sam_account_name": sName,
-						})
-
-						if err := h.rotatePassword(cleanupCtx, sName, d, vPath); err != nil {
-							h.logger.Error("Cleanup: failed to rotate password", map[string]interface{}{"error": err.Error()})
-						}
-
-						if err := h.disableAccount(cleanupCtx, sName, d); err != nil {
-							h.logger.Error("Cleanup: failed to disable account", map[string]interface{}{"error": err.Error()})
-						}
-					}(samAccountName, dn, vaultPath)
-				} else {
-					h.logger.Warn("Could not resolve AD details for managed account, skipping enable/disable hooks")
+					var pathErr error
+					samAccountName, dn, _, pathErr = h.scheduleRepo.GetManagedAccountADDetailsByPath(ctx, vaultPath)
+					if pathErr != nil {
+						h.logger.Error("Failed to resolve AD details by vault path", map[string]interface{}{"vault_path": vaultPath, "error": pathErr.Error()})
+					}
 				}
+
+				// Fallback 2: Try searching by name (in case ID is actually a name)
+				if samAccountName == "" && managedAccountID != "" {
+					h.logger.Warn("Managed account search by ID/Path failed, trying name search", map[string]interface{}{
+						"name": managedAccountID,
+					})
+					var nameErr error
+					samAccountName, dn, _, nameErr = h.scheduleRepo.GetManagedAccountADDetailsByName(ctx, managedAccountID)
+					if nameErr != nil {
+						h.logger.Error("Failed to resolve AD details by name", map[string]interface{}{"name": managedAccountID, "error": nameErr.Error()})
+					}
+				}
+			}
+
+			// If we found a path in the database, use it if we didn't have one
+			if vaultPath == "" && dbVaultPath != "" {
+				vaultPath = dbVaultPath
+			}
+
+			if samAccountName != "" && dn != "" {
+				// Enable account before session
+				if err := h.enableAccount(ctx, samAccountName, dn); err != nil {
+					h.logger.Error("Failed to enable managed account", map[string]interface{}{
+						"sam_account_name": samAccountName,
+						"error":            err.Error(),
+					})
+					http.Error(w, "Failed to activate account in AD", http.StatusInternalServerError)
+					return
+				}
+
+				// Wait for AD to propagate the enable operation before attempting RDP connection
+				h.logger.Info("Account enabled, waiting for AD propagation", map[string]interface{}{
+					"sam_account_name": samAccountName,
+					"delay_seconds":    2,
+				})
+				time.Sleep(2 * time.Second)
+
+				// Schedule rotation and disablement after session ends
+				defer func(sName, d string, vPath string) {
+					cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+
+					h.logger.Info("Starting session end tasks for managed account", map[string]interface{}{
+						"sam_account_name": sName,
+					})
+
+					if err := h.rotatePassword(cleanupCtx, sName, d, vPath); err != nil {
+						h.logger.Error("Cleanup: failed to rotate password", map[string]interface{}{"error": err.Error()})
+					}
+
+					if err := h.disableAccount(cleanupCtx, sName, d); err != nil {
+						h.logger.Error("Cleanup: failed to disable account", map[string]interface{}{"error": err.Error()})
+					}
+				}(samAccountName, dn, vaultPath)
+			} else {
+				h.logger.Warn("Could not resolve AD details for managed account, skipping enable/disable hooks")
 			}
 
 			// FINAL VALIDATION of vaultPath before fetching credentials
 			if vaultPath == "" {
-				h.logger.Error("Missing vault path for dynamic account after resolution attempts", map[string]interface{}{
+				h.logger.Error("Missing vault path for managed account", map[string]interface{}{
 					"schedule_id": validSchedule.ID,
-					"type":        validSchedule.AccountType,
 				})
 				http.Error(w, "Invalid account configuration: missing vault path", http.StatusInternalServerError)
 				return
 			}
 
 			vaultCreds, err = h.vault.GetCredentials(ctx, vaultPath)
-			// DEBUG: Log credential retrieval result
 			if err != nil {
-				h.logger.Error("DEBUG: Failed to get credentials from Vault", map[string]interface{}{
+				h.logger.Error("Failed to get managed account credentials from Vault", map[string]interface{}{
 					"vault_path": vaultPath,
 					"error":      err.Error(),
 				})
-			} else if vaultCreds != nil {
-				h.logger.Info("DEBUG: Got credentials from Vault", map[string]interface{}{
-					"vault_path":    vaultPath,
-					"username":      vaultCreds.Username,
-					"has_password":  vaultCreds.Password != "",
-				})
+				http.Error(w, "Failed to retrieve credentials", http.StatusInternalServerError)
+				return
 			}
+		} else if validSchedule.AccountType == "ephemeral" {
+			// Ephemeral accounts: Create on-the-fly, use, then delete
+			ephemeralPrefix, _ := validSchedule.AccountDetails["ephemeral_prefix"].(string)
+			if ephemeralPrefix == "" {
+				h.logger.Error("Missing ephemeral prefix", map[string]interface{}{
+					"schedule_id": validSchedule.ID,
+				})
+				http.Error(w, "Invalid ephemeral account configuration: missing prefix", http.StatusBadRequest)
+				return
+			}
+
+			// Create ephemeral account via Activity service
+			samAccountName, dn, vaultPath, err := h.createEphemeralAccount(ctx, ephemeralPrefix)
+			if err != nil {
+				h.logger.Error("Failed to create ephemeral account", map[string]interface{}{
+					"prefix": ephemeralPrefix,
+					"error":  err.Error(),
+				})
+				http.Error(w, "Failed to create ephemeral account in AD", http.StatusInternalServerError)
+				return
+			}
+
+			// Wait for AD to propagate the new account
+			h.logger.Info("Ephemeral account created, waiting for AD propagation", map[string]interface{}{
+				"sam_account_name": samAccountName,
+				"delay_seconds":    2,
+			})
+			time.Sleep(2 * time.Second)
+
+			// Schedule deletion after session ends (no rotation needed, just delete)
+			defer func(sName, d string) {
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+
+				h.logger.Info("Starting session end tasks for ephemeral account", map[string]interface{}{
+					"sam_account_name": sName,
+				})
+
+				if err := h.deleteEphemeralAccount(cleanupCtx, sName, d); err != nil {
+					h.logger.Error("Cleanup: failed to delete ephemeral account", map[string]interface{}{"error": err.Error()})
+				}
+			}(samAccountName, dn)
+
+			// Get credentials from Vault (Activity service stored them there)
+			vaultCreds, err = h.vault.GetCredentials(ctx, vaultPath)
+			if err != nil {
+				h.logger.Error("Failed to get ephemeral account credentials from Vault", map[string]interface{}{
+					"vault_path": vaultPath,
+					"error":      err.Error(),
+				})
+				http.Error(w, "Failed to retrieve ephemeral credentials", http.StatusInternalServerError)
+				return
+			}
+
+			h.logger.Info("Ephemeral account ready for RDP", map[string]interface{}{
+				"sam_account_name": samAccountName,
+				"vault_path":       vaultPath,
+			})
 		} else if validSchedule.AccountType == "promotion" {
 			// For promotion, user uses their own AD credentials.
 			// Ideally prompt user, or user supplied them during connection handshake (not supported yet).
@@ -613,4 +658,60 @@ func (h *ConnectionHandler) disableAccount(ctx context.Context, samAccountName, 
 func (h *ConnectionHandler) rotatePassword(ctx context.Context, samAccountName, dn, vaultPath string) error {
 	h.logger.Info("Rotating AD password", map[string]interface{}{"sam_account_name": samAccountName, "vault_path": vaultPath})
 	return h.callActivityService(ctx, "/api/v1/activity/accounts/rotate", samAccountName, dn, vaultPath)
+}
+
+// createEphemeralAccount creates a temporary AD account via the Activity service
+// Returns the created username, dn, and vault_path
+func (h *ConnectionHandler) createEphemeralAccount(ctx context.Context, prefix string) (string, string, string, error) {
+	if h.activityURL == "" {
+		return "", "", "", fmt.Errorf("activity service URL not configured")
+	}
+
+	h.logger.Info("Creating ephemeral AD account", map[string]interface{}{"prefix": prefix})
+
+	payload := map[string]string{
+		"prefix":      prefix,
+		"description": "OpenPAM Ephemeral Account",
+	}
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", h.activityURL+"/api/v1/activity/ephemeral/create", bytes.NewBuffer(body))
+	if err != nil {
+		return "", "", "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return "", "", "", fmt.Errorf("activity service returned status: %s", resp.Status)
+	}
+
+	var result struct {
+		Username  string `json:"username"`
+		DN        string `json:"dn"`
+		VaultPath string `json:"vault_path"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", "", "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	h.logger.Info("Ephemeral account created", map[string]interface{}{
+		"username":   result.Username,
+		"dn":         result.DN,
+		"vault_path": result.VaultPath,
+	})
+
+	return result.Username, result.DN, result.VaultPath, nil
+}
+
+// deleteEphemeralAccount deletes a temporary AD account via the Activity service
+func (h *ConnectionHandler) deleteEphemeralAccount(ctx context.Context, samAccountName, dn string) error {
+	h.logger.Info("Deleting ephemeral AD account", map[string]interface{}{"sam_account_name": samAccountName})
+	return h.callActivityService(ctx, "/api/v1/activity/ephemeral/delete", samAccountName, dn, "")
 }

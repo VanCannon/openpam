@@ -63,13 +63,6 @@ func (p *Proxy) Handle(
 		"target":     target.Hostname,
 	})
 
-	// DEBUG: Log credentials being used for RDP
-	p.logger.Info("DEBUG: RDP credentials", map[string]interface{}{
-		"username":     creds.Username,
-		"has_password": creds.Password != "",
-		"pwd_len":      len(creds.Password),
-	})
-
 	// Connect to guacd
 	guacdConn, err := net.Dial("tcp", p.guacdAddress)
 	if err != nil {

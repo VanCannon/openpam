@@ -1,10 +1,11 @@
 import Guacamole from 'guacamole-common-js';
 
 export class BinaryWebSocketTunnel extends Guacamole.Tunnel {
-    private socket: WebSocket | null = null;
+    public socket: WebSocket | null = null;
     private decoder: TextDecoder;
     private tunnelUrl: string;
     private parser: Guacamole.Parser;
+    private keepaliveInterval: NodeJS.Timeout | null = null;
 
     constructor(tunnelUrl: string) {
         super();
@@ -27,10 +28,17 @@ export class BinaryWebSocketTunnel extends Guacamole.Tunnel {
         this.socket.binaryType = "arraybuffer";
 
         this.socket.onopen = () => {
-            // console.log("BinaryWebSocketTunnel: WebSocket Open");
+            console.log("BinaryWebSocketTunnel: WebSocket Open, starting keepalive");
             // Reset decoder on new connection
             this.decoder = new TextDecoder("utf-8");
             this.setState(Guacamole.Tunnel.State.OPEN);
+
+            // Start explicit keepalive interval (every 5 seconds)
+            this.keepaliveInterval = setInterval(() => {
+                if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                    this.sendMessage("3.nop;");
+                }
+            }, 5000);
         };
 
         this.socket.onclose = (event) => {
@@ -81,6 +89,13 @@ export class BinaryWebSocketTunnel extends Guacamole.Tunnel {
 
     disconnect(): void {
         console.log('BinaryWebSocketTunnel: disconnect() called, socket state:', this.socket?.readyState)
+
+        // Clear keepalive interval
+        if (this.keepaliveInterval) {
+            clearInterval(this.keepaliveInterval);
+            this.keepaliveInterval = null;
+        }
+
         if (this.socket) {
             console.log('BinaryWebSocketTunnel: Closing websocket...')
             this.socket.close();

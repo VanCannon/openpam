@@ -259,9 +259,19 @@ func HandleCreateEphemeral(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate random suffix
-	randomSuffix := strconv.FormatInt(time.Now().UnixNano(), 36)[0:6]
-	username := fmt.Sprintf("%s-%s", req.Prefix, randomSuffix)
+	// Replace each * in prefix with a random character
+	username := ""
+	for _, ch := range req.Prefix {
+		if ch == '*' {
+			// Generate random alphanumeric character
+			chars := "abcdefghijklmnopqrstuvwxyz0123456789"
+			randIdx := time.Now().UnixNano() % int64(len(chars))
+			time.Sleep(time.Nanosecond) // Ensure different random for each *
+			username += string(chars[randIdx])
+		} else {
+			username += string(ch)
+		}
+	}
 	password := generatePassword(16)
 
 	adClient, err := getADClient()
@@ -278,6 +288,19 @@ func HandleCreateEphemeral(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "Failed to create ephemeral user")
 		return
 	}
+
+	// Add user to Domain Admins group for RDP access
+	// Get the Domain Admins group DN from the base DN
+	baseDN := os.Getenv("AD_BASE_DN")
+	domainAdminsDN := fmt.Sprintf("CN=Domain Admins,CN=Users,%s", baseDN)
+	if err := adClient.AddGroupMember(domainAdminsDN, dn); err != nil {
+		log.Printf("Failed to add ephemeral user %s to Domain Admins: %v", username, err)
+		// Clean up: delete the user we just created
+		adClient.DeleteUser(dn)
+		respondError(w, http.StatusInternalServerError, "Failed to grant ephemeral user RDP access")
+		return
+	}
+	log.Printf("Added ephemeral user %s to Domain Admins group", username)
 
 	// Store in Vault
 	vaultClient, err := getVaultClient()
