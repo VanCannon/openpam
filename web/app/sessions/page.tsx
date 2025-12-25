@@ -27,7 +27,7 @@ export default function DashboardPage() {
   const [endTime, setEndTime] = useState('')
   const [requesting, setRequesting] = useState(false)
   const [scheduleType, setScheduleType] = useState('scheduled')
-  const [accountType, setAccountType] = useState('static')
+  const [accountType, setAccountType] = useState('managed')
   const [requestForUserId, setRequestForUserId] = useState('')
   // New State for Dynamic Accounts
   const [managedAccounts, setManagedAccounts] = useState<ManagedAccount[]>([])
@@ -485,7 +485,7 @@ export default function DashboardPage() {
                   onChange={(e) => setAccountType(e.target.value)}
                   className="w-full px-3 py-2 border border-input  rounded-lg bg-card  text-foreground "
                 >
-                  <option value="static">Static Credential</option>
+
                   <option value="managed">Managed Account</option>
                   <option value="ephemeral">Ephemeral Account</option>
                   <option value="promotion">AD User Promotion</option>

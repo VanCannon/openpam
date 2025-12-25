@@ -15,17 +15,19 @@ import (
 
 // ScheduleHandler handles schedule-related requests
 type ScheduleHandler struct {
-	repo        *repository.ScheduleRepository
-	logger      *logger.Logger
-	broadcaster *sse.Broadcaster
+	repo            *repository.ScheduleRepository
+	systemAuditRepo *repository.SystemAuditLogRepository
+	logger          *logger.Logger
+	broadcaster     *sse.Broadcaster
 }
 
 // NewScheduleHandler creates a new schedule handler
-func NewScheduleHandler(repo *repository.ScheduleRepository, log *logger.Logger, broadcaster *sse.Broadcaster) *ScheduleHandler {
+func NewScheduleHandler(repo *repository.ScheduleRepository, systemAuditRepo *repository.SystemAuditLogRepository, log *logger.Logger, broadcaster *sse.Broadcaster) *ScheduleHandler {
 	return &ScheduleHandler{
-		repo:        repo,
-		logger:      log,
-		broadcaster: broadcaster,
+		repo:            repo,
+		systemAuditRepo: systemAuditRepo,
+		logger:          log,
+		broadcaster:     broadcaster,
 	}
 }
 
@@ -198,6 +200,26 @@ func (h *ScheduleHandler) HandleRequestSchedule() http.HandlerFunc {
 			"success":  true,
 			"message":  "Schedule request created successfully",
 			"schedule": schedule,
+		}
+
+		// Audit log
+		var actorID *uuid.UUID
+		if uid, err := uuid.Parse(userIDStr); err == nil {
+			actorID = &uid
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeScheduleRequested, actorID, "request_schedule", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"schedule_id": schedule.ID,
+			"target_id":   targetID,
+			"type":        schedule.Type,
+		})
+
+		// If auto-approved, log approval too
+		if schedule.ApprovalStatus == models.ApprovalStatusApproved {
+			h.systemAuditRepo.CreateSimple(ctx, models.EventTypeScheduleApproved, actorID, "auto_approve_schedule", models.AuditStatusSuccess, nil, map[string]interface{}{
+				"schedule_id": schedule.ID,
+				"approved_by": userIDStr,
+			})
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -415,6 +437,18 @@ func (h *ScheduleHandler) HandleApproveSchedule() http.HandlerFunc {
 			"message": "Schedule approved successfully",
 		}
 
+		// Audit log
+		var actorID *uuid.UUID
+		if uid, err := uuid.Parse(userIDStr); err == nil {
+			actorID = &uid
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeScheduleApproved, actorID, "approve_schedule", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"schedule_id": scheduleID,
+			"new_start":   newStartTime,
+			"new_end":     newEndTime,
+		})
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
 	}
@@ -484,6 +518,17 @@ func (h *ScheduleHandler) HandleRejectSchedule() http.HandlerFunc {
 			"message": "Schedule rejected successfully",
 		}
 
+		// Audit log
+		var actorID *uuid.UUID
+		if uid, err := uuid.Parse(userIDStr); err == nil {
+			actorID = &uid
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeScheduleRejected, actorID, "reject_schedule", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"schedule_id": scheduleID,
+			"reason":      req.Reason,
+		})
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
 	}
@@ -526,6 +571,16 @@ func (h *ScheduleHandler) HandleDeleteSchedule() http.HandlerFunc {
 			"success": true,
 			"message": "Schedule deleted successfully",
 		}
+
+		// Audit log
+		var actorID *uuid.UUID
+		if uid, err := uuid.Parse(userIDStr); err == nil {
+			actorID = &uid
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeScheduleRevoked, actorID, "delete_schedule", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"schedule_id": scheduleID,
+		})
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)

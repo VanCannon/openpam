@@ -22,14 +22,16 @@ type ScheduleWorker struct {
 	repo        *repository.ScheduleRepository
 	logger      *logger.Logger
 	broadcaster *sse.Broadcaster
+	identityURL string
 }
 
 // NewScheduleWorker creates a new schedule worker
-func NewScheduleWorker(repo *repository.ScheduleRepository, log *logger.Logger, broadcaster *sse.Broadcaster) *ScheduleWorker {
+func NewScheduleWorker(repo *repository.ScheduleRepository, log *logger.Logger, broadcaster *sse.Broadcaster, identityURL string) *ScheduleWorker {
 	return &ScheduleWorker{
 		repo:        repo,
 		logger:      log,
 		broadcaster: broadcaster,
+		identityURL: identityURL,
 	}
 }
 
@@ -88,6 +90,41 @@ func (w *ScheduleWorker) processSchedules(ctx context.Context) {
 	}
 }
 
+func (w *ScheduleWorker) fetchADBaseDN(ctx context.Context) string {
+	if w.identityURL == "" {
+		return ""
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", w.identityURL+"/api/v1/identity/config", nil)
+	if err != nil {
+		w.logger.Error("Failed to create request for AD config", map[string]interface{}{"error": err.Error()})
+		return ""
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		w.logger.Error("Failed to fetch AD config", map[string]interface{}{"error": err.Error()})
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		w.logger.Error("Identity service returned error", map[string]interface{}{"status": resp.StatusCode})
+		return ""
+	}
+
+	var config struct {
+		BaseDN string `json:"base_dn"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+		w.logger.Error("Failed to decode AD config", map[string]interface{}{"error": err.Error()})
+		return ""
+	}
+
+	return config.BaseDN
+}
+
 func (w *ScheduleWorker) handleSessionStart(ctx context.Context, s *models.Schedule) {
 	w.logger.Info("Handling session start", map[string]interface{}{"schedule_id": s.ID, "type": s.AccountType})
 
@@ -115,8 +152,11 @@ func (w *ScheduleWorker) handleSessionStart(ctx context.Context, s *models.Sched
 			prefix = "temp"
 		}
 
+		baseDN := w.fetchADBaseDN(ctx)
+
 		resp, err := w.callActivityServiceWithResponse("/api/v1/activity/ephemeral/create", map[string]interface{}{
-			"prefix": prefix,
+			"prefix":  prefix,
+			"base_dn": baseDN,
 		})
 		if err != nil {
 			w.logger.Error("Failed to create ephemeral account", map[string]interface{}{"error": err.Error()})

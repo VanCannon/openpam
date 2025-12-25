@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	ldap "github.com/VanCannon/openpam/activity/internal/ad"
@@ -29,6 +30,7 @@ type RotateRequest struct {
 type CreateEphemeralRequest struct {
 	Prefix      string `json:"prefix"`
 	Description string `json:"description"`
+	BaseDN      string `json:"base_dn"`
 }
 
 type PromotionRequest struct {
@@ -284,6 +286,17 @@ func HandleCreateEphemeral(w http.ResponseWriter, r *http.Request) {
 	}
 	defer adClient.Close()
 
+	// Use provided baseDN from request if available, otherwise fallback to existing client.BaseDN (env)
+	creationBaseDN := req.BaseDN
+	if creationBaseDN == "" {
+		creationBaseDN = adClient.BaseDN
+	}
+
+	// CreateUser needs to accept BaseDN override, but currently client.CreateUser uses c.BaseDN
+	// We need to update Client.CreateUser or temporarily set c.BaseDN
+	// Let's set it on the client instance since it's per-request here
+	adClient.BaseDN = creationBaseDN
+
 	dn, err := adClient.CreateUser(username, password, req.Description)
 	if err != nil {
 		log.Printf("Failed to create ephemeral user %s: %v", username, err)
@@ -292,9 +305,17 @@ func HandleCreateEphemeral(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add user to Domain Admins group for RDP access
-	// Get the Domain Admins group DN from the base DN
-	baseDN := os.Getenv("AD_BASE_DN")
-	domainAdminsDN := fmt.Sprintf("CN=Domain Admins,CN=Users,%s", baseDN)
+	// Get the Domain Admins group DN from the base DN (Domain Root)
+	// We should always find Domain Admins at the Domain Root config (env), not necessarily the new specific OU BaseDN
+	// So we should use the *configured* domain root, which is likely kept in original os.Getenv("AD_BASE_DN")
+	// or fallback to the creationBaseDN if we assume it's same domain.
+	domainRootDN := os.Getenv("AD_BASE_DN")
+	if domainRootDN == "" {
+		// fallback to creationBaseDN, hoping it is the domain root or contains it
+		domainRootDN = creationBaseDN
+	}
+
+	domainAdminsDN := fmt.Sprintf("CN=Domain Admins,CN=Users,%s", domainRootDN)
 	if err := adClient.AddGroupMember(domainAdminsDN, dn); err != nil {
 		log.Printf("Failed to add ephemeral user %s to Domain Admins: %v", username, err)
 		// Clean up: delete the user we just created
@@ -304,33 +325,33 @@ func HandleCreateEphemeral(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Added ephemeral user %s to Domain Admins group", username)
 
-	// Store in Vault
-	vaultClient, err := getVaultClient()
-	if err != nil {
-		log.Printf("Failed to connect to Vault: %v", err)
-		respondError(w, http.StatusInternalServerError, "Failed to connect to secret store")
-		return
-	}
+	// Construct UPN for RDP (needs domain)
+	domain := getDomainFromBaseDN(domainRootDN)
+	upn := fmt.Sprintf("%s@%s", username, domain)
 
-	vaultPath := fmt.Sprintf("secret/data/openpam/ephemeral/%s", username)
-	creds := &vault.Credentials{
-		Username: username,
-		Password: password,
-	}
-
-	if err := vaultClient.WriteCredentials(r.Context(), vaultPath, creds); err != nil {
-		log.Printf("Failed to write to Vault path %s: %v", vaultPath, err)
-		respondError(w, http.StatusInternalServerError, "Failed to store ephemeral credentials")
-		return
-	}
-
-	// Return info to Gateway
+	// Return info to Gateway (including password, via internal HTTPS)
 	respond(w, http.StatusCreated, map[string]string{
-		"status":     "success",
-		"username":   username,
-		"dn":         dn,
-		"vault_path": vaultPath,
+		"status":   "success",
+		"username": username,
+		"upn":      upn,
+		"dn":       dn,
+		"password": password,
 	})
+}
+
+func getDomainFromBaseDN(baseDN string) string {
+	parts := strings.Split(baseDN, ",")
+	var domainParts []string
+	for _, p := range parts {
+		upper := strings.ToUpper(strings.TrimSpace(p))
+		if strings.HasPrefix(upper, "DC=") {
+			// Extract value, keeping case for safety (though AD is case insensitive usually, DNS is lowercase)
+			// Actually let's just grab the value.
+			val := strings.TrimSpace(p[3:])
+			domainParts = append(domainParts, val)
+		}
+	}
+	return strings.ToLower(strings.Join(domainParts, "."))
 }
 
 func HandleDeleteEphemeral(w http.ResponseWriter, r *http.Request) {

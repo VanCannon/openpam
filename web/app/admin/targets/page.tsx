@@ -14,6 +14,7 @@ export default function TargetsPage() {
   const [zones, setZones] = useState<Zone[]>([])
   const [loadingTargets, setLoadingTargets] = useState(true)
   const [showModal, setShowModal] = useState(false)
+  const [editingTargetId, setEditingTargetId] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     zone_id: '',
     name: '',
@@ -21,6 +22,7 @@ export default function TargetsPage() {
     protocol: 'ssh' as 'ssh' | 'rdp',
     port: 22,
     description: '',
+    enabled: true,
   })
 
   useEffect(() => {
@@ -57,16 +59,47 @@ export default function TargetsPage() {
     }
   }
 
+  const openCreateModal = () => {
+    setEditingTargetId(null)
+    setFormData({
+      zone_id: '',
+      name: '',
+      hostname: '',
+      protocol: 'ssh',
+      port: 22,
+      description: '',
+      enabled: true,
+    })
+    setShowModal(true)
+  }
+
+  const openEditModal = (target: Target) => {
+    setEditingTargetId(target.id)
+    setFormData({
+      zone_id: target.zone_id || '',
+      name: target.name,
+      hostname: target.hostname,
+      protocol: target.protocol as 'ssh' | 'rdp',
+      port: target.port,
+      description: target.description || '',
+      enabled: target.enabled,
+    })
+    setShowModal(true)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      await api.createTarget(formData)
+      if (editingTargetId) {
+        await api.updateTarget(editingTargetId, formData)
+      } else {
+        await api.createTarget(formData)
+      }
       setShowModal(false)
-      setFormData({ zone_id: '', name: '', hostname: '', protocol: 'ssh', port: 22, description: '' })
       loadTargets()
     } catch (error) {
-      console.error('Failed to create target:', error)
-      alert('Failed to create target')
+      console.error('Failed to save target:', error)
+      alert('Failed to save target')
     }
   }
 
@@ -78,7 +111,8 @@ export default function TargetsPage() {
       loadTargets()
     } catch (error) {
       console.error('Failed to delete target:', error)
-      alert('Failed to delete target')
+      const msg = error instanceof Error ? error.message : 'Failed to delete target'
+      alert(msg)
     }
   }
 
@@ -96,7 +130,7 @@ export default function TargetsPage() {
             <p className="text-sm text-muted-foreground mt-1">Manage SSH and RDP targets</p>
           </div>
           <button
-            onClick={() => setShowModal(true)}
+            onClick={openCreateModal}
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
           >
             Create Target
@@ -138,7 +172,13 @@ export default function TargetsPage() {
                         {target.enabled ? 'Enabled' : 'Disabled'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm space-x-3">
+                      <button
+                        onClick={() => openEditModal(target)}
+                        className="text-blue-600 hover:text-blue-900"
+                      >
+                        Edit
+                      </button>
                       <button
                         onClick={() => handleDelete(target.id)}
                         className="text-red-600 hover:text-red-900"
@@ -157,7 +197,7 @@ export default function TargetsPage() {
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-card rounded-lg max-w-md w-full p-6 my-8">
-            <h3 className="text-lg font-semibold mb-4">Create Target</h3>
+            <h3 className="text-lg font-semibold mb-4">{editingTargetId ? 'Edit Target' : 'Create Target'}</h3>
             <form onSubmit={handleSubmit}>
               <div className="space-y-4">
                 <div>
@@ -230,6 +270,18 @@ export default function TargetsPage() {
                     rows={3}
                   />
                 </div>
+                <div className="flex items-center">
+                  <input
+                    id="enabled"
+                    type="checkbox"
+                    checked={formData.enabled}
+                    onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
+                    className="h-4 w-4 text-blue-600 border-input rounded"
+                  />
+                  <label htmlFor="enabled" className="ml-2 block text-sm text-foreground">
+                    Enabled
+                  </label>
+                </div>
               </div>
               <div className="flex space-x-3 mt-6">
                 <button
@@ -243,7 +295,7 @@ export default function TargetsPage() {
                   type="submit"
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                 >
-                  Create
+                  {editingTargetId ? 'Save Changes' : 'Create'}
                 </button>
               </div>
             </form>

@@ -5,19 +5,22 @@ import (
 	"net/http"
 
 	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/models"
 	"github.com/VanCannon/openpam/gateway/internal/repository"
 	"github.com/google/uuid"
 )
 
 type GroupHandler struct {
-	repo   *repository.GroupRepository
-	logger *logger.Logger
+	repo            *repository.GroupRepository
+	systemAuditRepo *repository.SystemAuditLogRepository
+	logger          *logger.Logger
 }
 
-func NewGroupHandler(repo *repository.GroupRepository, log *logger.Logger) *GroupHandler {
+func NewGroupHandler(repo *repository.GroupRepository, systemAuditRepo *repository.SystemAuditLogRepository, log *logger.Logger) *GroupHandler {
 	return &GroupHandler{
-		repo:   repo,
-		logger: log,
+		repo:            repo,
+		systemAuditRepo: systemAuditRepo,
+		logger:          log,
 	}
 }
 
@@ -69,6 +72,15 @@ func (h *GroupHandler) HandleDelete() http.HandlerFunc {
 			})
 			http.Error(w, "Failed to delete group", http.StatusInternalServerError)
 			return
+		}
+
+		// Audit log
+		if err := h.systemAuditRepo.CreateSimple(ctx, models.EventTypeGroupDeleted, nil, "delete_group", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"group_id": idStr,
+		}); err != nil {
+			h.logger.Error("Failed to create audit log", map[string]interface{}{
+				"error": err.Error(),
+			})
 		}
 
 		w.WriteHeader(http.StatusNoContent)

@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/middleware"
 	"github.com/VanCannon/openpam/gateway/internal/models"
 	"github.com/VanCannon/openpam/gateway/internal/repository"
 	"github.com/google/uuid"
@@ -13,15 +14,17 @@ import (
 
 // UserHandler handles user management requests
 type UserHandler struct {
-	repo   *repository.UserRepository
-	logger *logger.Logger
+	repo            *repository.UserRepository
+	systemAuditRepo *repository.SystemAuditLogRepository
+	logger          *logger.Logger
 }
 
 // NewUserHandler creates a new user handler
-func NewUserHandler(repo *repository.UserRepository, log *logger.Logger) *UserHandler {
+func NewUserHandler(repo *repository.UserRepository, systemAuditRepo *repository.SystemAuditLogRepository, log *logger.Logger) *UserHandler {
 	return &UserHandler{
-		repo:   repo,
-		logger: log,
+		repo:            repo,
+		systemAuditRepo: systemAuditRepo,
+		logger:          log,
 	}
 }
 
@@ -108,6 +111,20 @@ func (h *UserHandler) HandleUpdateRole() http.HandlerFunc {
 			return
 		}
 
+		// Audit log
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if actorIDStr != "" {
+			if uid, err := uuid.Parse(actorIDStr); err == nil {
+				actorID = &uid
+			}
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeUserUpdated, actorID, "update_role", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"target_user_id": idStr,
+			"new_role":       req.Role,
+		})
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(user)
 	}
@@ -150,6 +167,25 @@ func (h *UserHandler) HandleUpdateEnabled() http.HandlerFunc {
 			return
 		}
 
+		// Audit log
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if actorIDStr != "" {
+			if uid, err := uuid.Parse(actorIDStr); err == nil {
+				actorID = &uid
+			}
+		}
+
+		action := "enable_user"
+		if !req.Enabled {
+			action = "disable_user"
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeUserUpdated, actorID, action, models.AuditStatusSuccess, nil, map[string]interface{}{
+			"target_user_id": idStr,
+			"enabled":        req.Enabled,
+		})
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(user)
 	}
@@ -182,6 +218,19 @@ func (h *UserHandler) HandleDelete() http.HandlerFunc {
 			http.Error(w, "Failed to delete user", http.StatusInternalServerError)
 			return
 		}
+
+		// Audit log
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if actorIDStr != "" {
+			if uid, err := uuid.Parse(actorIDStr); err == nil {
+				actorID = &uid
+			}
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeUserDeleted, actorID, "delete_user", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"target_user_id": idStr,
+		})
 
 		w.WriteHeader(http.StatusNoContent)
 	}

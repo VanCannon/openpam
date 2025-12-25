@@ -3,7 +3,9 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
+	"github.com/VanCannon/openpam/gateway/internal/middleware"
 	"github.com/VanCannon/openpam/gateway/internal/models"
 	"github.com/google/uuid"
 )
@@ -71,6 +73,20 @@ func (h *TargetHandler) HandleCreate() http.HandlerFunc {
 			http.Error(w, "Failed to create target", http.StatusInternalServerError)
 			return
 		}
+
+		// Audit log
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if actorIDStr != "" {
+			if uid, err := uuid.Parse(actorIDStr); err == nil {
+				actorID = &uid
+			}
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeTargetCreated, actorID, "create_target", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"target_id":   target.ID,
+			"target_name": target.Name,
+		})
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -166,6 +182,20 @@ func (h *TargetHandler) HandleUpdate() http.HandlerFunc {
 			return
 		}
 
+		// Audit log
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if actorIDStr != "" {
+			if uid, err := uuid.Parse(actorIDStr); err == nil {
+				actorID = &uid
+			}
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeTargetUpdated, actorID, "update_target", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"target_id":   target.ID,
+			"target_name": target.Name,
+		})
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(target)
 	}
@@ -190,11 +220,42 @@ func (h *TargetHandler) HandleDelete() http.HandlerFunc {
 
 		if err := h.targetRepo.Delete(ctx, targetID); err != nil {
 			h.logger.Error("Failed to delete target", map[string]interface{}{
+				"id":    targetID,
 				"error": err.Error(),
 			})
+
+			// Check for foreign key constraint violation (Postgres specific check via error string)
+			// Ideally we would unwrap the error to *pq.Error but string matching is safer across drivers if generic
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "violates foreign key constraint") {
+				if strings.Contains(errMsg, "audit_logs") {
+					http.Error(w, "Cannot delete target because it has associated session history. Please disable it instead.", http.StatusConflict)
+					return
+				}
+				if strings.Contains(errMsg, "schedules") {
+					http.Error(w, "Cannot delete target because it has active schedules.", http.StatusConflict)
+					return
+				}
+				http.Error(w, "Cannot delete target because it is in use.", http.StatusConflict)
+				return
+			}
+
 			http.Error(w, "Failed to delete target", http.StatusInternalServerError)
 			return
 		}
+
+		// Audit log
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if actorIDStr != "" {
+			if uid, err := uuid.Parse(actorIDStr); err == nil {
+				actorID = &uid
+			}
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeTargetDeleted, actorID, "delete_target", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"target_id": targetID,
+		})
 
 		w.WriteHeader(http.StatusNoContent)
 	}

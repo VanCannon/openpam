@@ -11,15 +11,17 @@ import (
 
 // TargetHandler handles target-related requests
 type TargetHandler struct {
-	targetRepo *repository.TargetRepository
-	logger     *logger.Logger
+	targetRepo      *repository.TargetRepository
+	systemAuditRepo *repository.SystemAuditLogRepository
+	logger          *logger.Logger
 }
 
 // NewTargetHandler creates a new target handler
-func NewTargetHandler(targetRepo *repository.TargetRepository, log *logger.Logger) *TargetHandler {
+func NewTargetHandler(targetRepo *repository.TargetRepository, systemAuditRepo *repository.SystemAuditLogRepository, log *logger.Logger) *TargetHandler {
 	return &TargetHandler{
-		targetRepo: targetRepo,
-		logger:     log,
+		targetRepo:      targetRepo,
+		systemAuditRepo: systemAuditRepo,
+		logger:          log,
 	}
 }
 

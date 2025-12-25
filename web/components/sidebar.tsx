@@ -53,7 +53,7 @@ export default function Sidebar() {
         { href: '/admin/requests', label: 'Requests', icon: FileText },
         { href: '/admin/zones', label: 'Zones', icon: Globe },
         { href: '/admin/targets', label: 'Targets', icon: Server },
-        { href: '/admin/credentials', label: 'Credentials', icon: Key },
+
         { href: '/admin/audit', label: 'Audit Logs', icon: Shield },
         { href: '/admin/identity', label: 'AD Sync', icon: RefreshCw },
         { href: '/admin/managed-accounts', label: 'Managed Accounts', icon: Monitor },

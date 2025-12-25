@@ -21,6 +21,7 @@ type Config struct {
 	Identity     IdentityConfig
 	Orchestrator OrchestratorConfig
 	Activity     ActivityConfig
+	GeminiAPIKey string
 }
 
 // ActivityConfig holds Activity Service configuration
@@ -150,6 +151,7 @@ func Load() (*Config, error) {
 		Activity: ActivityConfig{
 			URL: getEnv("ACTIVITY_URL", "http://localhost:8083"),
 		},
+		GeminiAPIKey: getEnv("GEMINI_API_KEY", ""),
 	}
 
 	if err := cfg.Validate(); err != nil {

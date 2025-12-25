@@ -6,20 +6,26 @@ import (
 	"net/url"
 
 	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/middleware"
+	"github.com/VanCannon/openpam/gateway/internal/models"
+	"github.com/VanCannon/openpam/gateway/internal/repository"
+	"github.com/google/uuid"
 )
 
 // IdentityHandler handles requests related to identity management
 type IdentityHandler struct {
 	identityURL     string
 	orchestratorURL string
+	systemAuditRepo *repository.SystemAuditLogRepository
 	logger          *logger.Logger
 }
 
 // NewIdentityHandler creates a new IdentityHandler
-func NewIdentityHandler(identityURL, orchestratorURL string, logger *logger.Logger) *IdentityHandler {
+func NewIdentityHandler(identityURL, orchestratorURL string, systemAuditRepo *repository.SystemAuditLogRepository, logger *logger.Logger) *IdentityHandler {
 	return &IdentityHandler{
 		identityURL:     identityURL,
 		orchestratorURL: orchestratorURL,
+		systemAuditRepo: systemAuditRepo,
 		logger:          logger,
 	}
 }
@@ -92,6 +98,17 @@ func (h *IdentityHandler) HandleListADGroups() http.HandlerFunc {
 // HandleImportUser proxies the request to import an AD user
 func (h *IdentityHandler) HandleImportUser() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Audit log
+		ctx := r.Context()
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if uid, err := uuid.Parse(actorIDStr); err == nil {
+			actorID = &uid
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeUserCreated, actorID, "import_user", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"source": "ad_import",
+		})
 		h.proxyRequest(h.identityURL, w, r)
 	}
 }
@@ -99,6 +116,17 @@ func (h *IdentityHandler) HandleImportUser() http.HandlerFunc {
 // HandleImportGroup proxies the request to import an AD group
 func (h *IdentityHandler) HandleImportGroup() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Audit log
+		ctx := r.Context()
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if uid, err := uuid.Parse(actorIDStr); err == nil {
+			actorID = &uid
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeGroupCreated, actorID, "import_group", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"source": "ad_import",
+		})
 		h.proxyRequest(h.identityURL, w, r)
 	}
 }
@@ -106,6 +134,17 @@ func (h *IdentityHandler) HandleImportGroup() http.HandlerFunc {
 // HandleImportComputer proxies the request to import an AD computer
 func (h *IdentityHandler) HandleImportComputer() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Audit log
+		ctx := r.Context()
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if uid, err := uuid.Parse(actorIDStr); err == nil {
+			actorID = &uid
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeTargetCreated, actorID, "import_computer", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"source": "ad_import",
+		})
 		h.proxyRequest(h.identityURL, w, r)
 	}
 }
@@ -113,6 +152,15 @@ func (h *IdentityHandler) HandleImportComputer() http.HandlerFunc {
 // HandleSyncAD proxies the request to trigger AD sync via Orchestrator
 func (h *IdentityHandler) HandleSyncAD() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Audit log
+		ctx := r.Context()
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if uid, err := uuid.Parse(actorIDStr); err == nil {
+			actorID = &uid
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, "ad_sync", actorID, "trigger_ad_sync", models.AuditStatusSuccess, nil, nil)
 		h.proxyRequest(h.orchestratorURL, w, r)
 	}
 }
@@ -127,6 +175,19 @@ func (h *IdentityHandler) HandleListManagedAccounts() http.HandlerFunc {
 // HandleDeleteManagedAccount proxies the request to delete managed accounts
 func (h *IdentityHandler) HandleDeleteManagedAccount() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Audit log
+		ctx := r.Context()
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if uid, err := uuid.Parse(actorIDStr); err == nil {
+			actorID = &uid
+		}
+
+		id := r.URL.Path[len("/api/v1/managed-accounts/"):]
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeCredentialDeleted, actorID, "delete_managed_account", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"managed_account_id": id,
+		})
 		h.proxyRequest(h.identityURL, w, r)
 	}
 }

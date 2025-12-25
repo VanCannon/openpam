@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/VanCannon/openpam/gateway/internal/logger"
+	"github.com/VanCannon/openpam/gateway/internal/middleware"
 	"github.com/VanCannon/openpam/gateway/internal/models"
 	"github.com/VanCannon/openpam/gateway/internal/repository"
 	"github.com/google/uuid"
@@ -12,15 +13,17 @@ import (
 
 // ZoneHandler handles zone-related requests
 type ZoneHandler struct {
-	zoneRepo *repository.ZoneRepository
-	logger   *logger.Logger
+	zoneRepo        *repository.ZoneRepository
+	systemAuditRepo *repository.SystemAuditLogRepository
+	logger          *logger.Logger
 }
 
 // NewZoneHandler creates a new zone handler
-func NewZoneHandler(zoneRepo *repository.ZoneRepository, log *logger.Logger) *ZoneHandler {
+func NewZoneHandler(zoneRepo *repository.ZoneRepository, systemAuditRepo *repository.SystemAuditLogRepository, log *logger.Logger) *ZoneHandler {
 	return &ZoneHandler{
-		zoneRepo: zoneRepo,
-		logger:   log,
+		zoneRepo:        zoneRepo,
+		systemAuditRepo: systemAuditRepo,
+		logger:          log,
 	}
 }
 
@@ -96,6 +99,20 @@ func (h *ZoneHandler) HandleCreate() http.HandlerFunc {
 			http.Error(w, "Failed to create zone", http.StatusInternalServerError)
 			return
 		}
+
+		// Audit log
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if actorIDStr != "" {
+			if uid, err := uuid.Parse(actorIDStr); err == nil {
+				actorID = &uid
+			}
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeZoneCreated, actorID, "create_zone", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"zone_id":   zone.ID,
+			"zone_name": zone.Name,
+		})
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -180,6 +197,20 @@ func (h *ZoneHandler) HandleUpdate() http.HandlerFunc {
 			return
 		}
 
+		// Audit log
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if actorIDStr != "" {
+			if uid, err := uuid.Parse(actorIDStr); err == nil {
+				actorID = &uid
+			}
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeZoneUpdated, actorID, "update_zone", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"zone_id":   zone.ID,
+			"zone_name": zone.Name,
+		})
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(zone)
 	}
@@ -209,6 +240,19 @@ func (h *ZoneHandler) HandleDelete() http.HandlerFunc {
 			http.Error(w, "Failed to delete zone", http.StatusInternalServerError)
 			return
 		}
+
+		// Audit log
+		actorIDStr := middleware.GetUserID(ctx)
+		var actorID *uuid.UUID
+		if actorIDStr != "" {
+			if uid, err := uuid.Parse(actorIDStr); err == nil {
+				actorID = &uid
+			}
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeZoneDeleted, actorID, "delete_zone", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"zone_id": zoneID,
+		})
 
 		w.WriteHeader(http.StatusNoContent)
 	}

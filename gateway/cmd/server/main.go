@@ -104,7 +104,7 @@ func run() error {
 	scheduleRepo := repository.NewScheduleRepository(db)
 
 	// Start schedule worker with SSE broadcaster
-	scheduleWorker := worker.NewScheduleWorker(scheduleRepo, log, srv.GetBroadcaster())
+	scheduleWorker := worker.NewScheduleWorker(scheduleRepo, log, srv.GetBroadcaster(), cfg.Identity.URL)
 	go scheduleWorker.Start(context.Background())
 
 	// Channel to listen for errors from the server

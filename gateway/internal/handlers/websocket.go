@@ -34,15 +34,17 @@ var upgrader = websocket.Upgrader{
 
 // ConnectionHandler handles WebSocket connection requests
 type ConnectionHandler struct {
-	vault        *vault.Client
-	targetRepo   *repository.TargetRepository
-	credRepo     *repository.CredentialRepository
-	auditRepo    *repository.AuditLogRepository
-	sshProxy     *ssh.Proxy
-	rdpProxy     *rdp.Proxy
-	logger       *logger.Logger
-	scheduleRepo *repository.ScheduleRepository
-	activityURL  string
+	vault           *vault.Client
+	targetRepo      *repository.TargetRepository
+	credRepo        *repository.CredentialRepository
+	auditRepo       *repository.AuditLogRepository
+	systemAuditRepo *repository.SystemAuditLogRepository
+	sshProxy        *ssh.Proxy
+	rdpProxy        *rdp.Proxy
+	logger          *logger.Logger
+	scheduleRepo    *repository.ScheduleRepository
+	activityURL     string
+	identityURL     string
 }
 
 // NewConnectionHandler creates a new connection handler
@@ -51,22 +53,26 @@ func NewConnectionHandler(
 	targetRepo *repository.TargetRepository,
 	credRepo *repository.CredentialRepository,
 	auditRepo *repository.AuditLogRepository,
+	systemAuditRepo *repository.SystemAuditLogRepository,
 	sshProxy *ssh.Proxy,
 	rdpProxy *rdp.Proxy,
 	log *logger.Logger,
 	scheduleRepo *repository.ScheduleRepository,
 	activityURL string,
+	identityURL string,
 ) *ConnectionHandler {
 	return &ConnectionHandler{
-		vault:        vaultClient,
-		targetRepo:   targetRepo,
-		credRepo:     credRepo,
-		auditRepo:    auditRepo,
-		sshProxy:     sshProxy,
-		rdpProxy:     rdpProxy,
-		logger:       log,
-		scheduleRepo: scheduleRepo,
-		activityURL:  activityURL,
+		vault:           vaultClient,
+		targetRepo:      targetRepo,
+		credRepo:        credRepo,
+		auditRepo:       auditRepo,
+		systemAuditRepo: systemAuditRepo,
+		sshProxy:        sshProxy,
+		rdpProxy:        rdpProxy,
+		logger:          log,
+		scheduleRepo:    scheduleRepo,
+		activityURL:     activityURL,
+		identityURL:     identityURL,
 	}
 }
 
@@ -343,7 +349,7 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 			}
 
 			// Create ephemeral account via Activity service
-			samAccountName, dn, vaultPath, err := h.createEphemeralAccount(ctx, ephemeralPrefix)
+			samAccountName, dn, upn, password, err := h.createEphemeralAccount(ctx, ephemeralPrefix)
 			if err != nil {
 				h.logger.Error("Failed to create ephemeral account", map[string]interface{}{
 					"prefix": ephemeralPrefix,
@@ -356,9 +362,10 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 			// Wait for AD to propagate the new account
 			h.logger.Info("Ephemeral account created, waiting for AD propagation", map[string]interface{}{
 				"sam_account_name": samAccountName,
-				"delay_seconds":    2,
+				"upn":              upn,
+				"delay_seconds":    5,
 			})
-			time.Sleep(2 * time.Second)
+			time.Sleep(5 * time.Second)
 
 			// Schedule deletion after session ends (no rotation needed, just delete)
 			defer func(sName, d string) {
@@ -374,20 +381,21 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 				}
 			}(samAccountName, dn)
 
-			// Get credentials from Vault (Activity service stored them there)
-			vaultCreds, err = h.vault.GetCredentials(ctx, vaultPath)
-			if err != nil {
-				h.logger.Error("Failed to get ephemeral account credentials from Vault", map[string]interface{}{
-					"vault_path": vaultPath,
-					"error":      err.Error(),
-				})
-				http.Error(w, "Failed to retrieve ephemeral credentials", http.StatusInternalServerError)
-				return
+			// Get credentials directly from ephemeral account creation (no Vault lookup)
+			// Use UPN as username for RDP to ensure correct domain context (e.g. user@domain.com)
+			rUser := samAccountName
+			if upn != "" {
+				rUser = upn
+			}
+
+			vaultCreds = &vault.Credentials{
+				Username: rUser,
+				Password: password,
 			}
 
 			h.logger.Info("Ephemeral account ready for RDP", map[string]interface{}{
 				"sam_account_name": samAccountName,
-				"vault_path":       vaultPath,
+				"rdp_username":     rUser,
 			})
 		} else if validSchedule.AccountType == "promotion" {
 			// For promotion, user uses their own AD credentials.
@@ -564,14 +572,35 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 			"target_id":     targetID.String(),
 			"credential_id": credIDStr,
 		})
+
+		// Log session connection attempt
+		var actorID *uuid.UUID
+		if uid, err := uuid.Parse(userID); err == nil {
+			actorID = &uid
+		}
+
+		h.systemAuditRepo.CreateSimple(ctx, models.EventTypeSessionConnected, actorID, "connect_session", models.AuditStatusSuccess, nil, map[string]interface{}{
+			"target_id": targetID,
+			"protocol":  protocol,
+		})
+
+		// Upgrade to WebSocket
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			h.logger.Error("Failed to upgrade to WebSocket", map[string]interface{}{
+			h.logger.Error("Failed to upgrade connection", map[string]interface{}{
 				"error": err.Error(),
 			})
 			return
 		}
 		defer conn.Close()
+
+		// Log session disconnection when handler returns
+		defer func() {
+			h.systemAuditRepo.CreateSimple(context.Background(), models.EventTypeSessionDisconnected, actorID, "disconnect_session", models.AuditStatusSuccess, nil, map[string]interface{}{
+				"target_id": targetID,
+				"protocol":  protocol,
+			})
+		}()
 
 		// Set deadlines to prevent hanging connections
 		conn.SetReadDeadline(time.Time{})  // No read deadline
@@ -638,6 +667,17 @@ func (h *ConnectionHandler) HandleConnect() http.HandlerFunc {
 				"audit_log_id": auditLog.ID.String(),
 				"error":        err.Error(),
 			})
+
+			// Attempt to send error details to the client so they know why it failed
+			errorMsg := map[string]string{
+				"type":    "error",
+				"message": err.Error(),
+			}
+			if jsonBytes, marshalErr := json.Marshal(errorMsg); marshalErr == nil {
+				// Set a short write deadline to ensure we don't hang if client is gone
+				conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+				conn.WriteMessage(websocket.TextMessage, jsonBytes)
+			}
 		} else {
 			auditLog.SessionStatus = models.SessionStatusCompleted
 		}
@@ -755,53 +795,58 @@ func (h *ConnectionHandler) rotatePassword(ctx context.Context, samAccountName, 
 }
 
 // createEphemeralAccount creates a temporary AD account via the Activity service
-// Returns the created username, dn, and vault_path
-func (h *ConnectionHandler) createEphemeralAccount(ctx context.Context, prefix string) (string, string, string, error) {
+// Returns the created username, dn, upn, and password
+func (h *ConnectionHandler) createEphemeralAccount(ctx context.Context, prefix string) (string, string, string, string, error) {
 	if h.activityURL == "" {
-		return "", "", "", fmt.Errorf("activity service URL not configured")
+		return "", "", "", "", fmt.Errorf("activity service URL not configured")
 	}
 
 	h.logger.Info("Creating ephemeral AD account", map[string]interface{}{"prefix": prefix})
 
+	// Fetch BaseDN from Identity Service
+	baseDN := h.fetchADBaseDN(ctx)
+
 	payload := map[string]string{
 		"prefix":      prefix,
 		"description": "OpenPAM Ephemeral Account",
+		"base_dn":     baseDN,
 	}
 	body, _ := json.Marshal(payload)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", h.activityURL+"/api/v1/activity/ephemeral/create", bytes.NewBuffer(body))
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return "", "", "", fmt.Errorf("activity service returned status: %s", resp.Status)
+		return "", "", "", "", fmt.Errorf("activity service returned status %d", resp.StatusCode)
 	}
 
 	var result struct {
-		Username  string `json:"username"`
-		DN        string `json:"dn"`
-		VaultPath string `json:"vault_path"`
+		Username string `json:"username"`
+		DN       string `json:"dn"`
+		UPN      string `json:"upn"`
+		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", "", "", fmt.Errorf("failed to decode response: %w", err)
+		return "", "", "", "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	h.logger.Info("Ephemeral account created", map[string]interface{}{
-		"username":   result.Username,
-		"dn":         result.DN,
-		"vault_path": result.VaultPath,
+		"username": result.Username,
+		"dn":       result.DN,
+		"upn":      result.UPN,
 	})
 
-	return result.Username, result.DN, result.VaultPath, nil
+	return result.Username, result.DN, result.UPN, result.Password, nil
 }
 
 // deleteEphemeralAccount deletes a temporary AD account via the Activity service
@@ -958,4 +1003,39 @@ func (h *ConnectionHandler) demoteUser(ctx context.Context, userDN string) error
 	}
 
 	return nil
+}
+
+func (h *ConnectionHandler) fetchADBaseDN(ctx context.Context) string {
+	if h.identityURL == "" {
+		return ""
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", h.identityURL+"/api/v1/identity/config", nil)
+	if err != nil {
+		h.logger.Error("Failed to create request for AD config", map[string]interface{}{"error": err.Error()})
+		return ""
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		h.logger.Error("Failed to fetch AD config", map[string]interface{}{"error": err.Error()})
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		h.logger.Error("Identity service returned error", map[string]interface{}{"status": resp.StatusCode})
+		return ""
+	}
+
+	var config struct {
+		BaseDN string `json:"base_dn"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+		h.logger.Error("Failed to decode AD config", map[string]interface{}{"error": err.Error()})
+		return ""
+	}
+
+	return config.BaseDN
 }

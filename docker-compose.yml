@@ -139,6 +139,9 @@ services:
       - IDENTITY_URL=http://identity:8082
       - ORCHESTRATOR_URL=http://orchestrator:8090
       - ACTIVITY_URL=http://activity:8083
+      - GEMINI_API_KEY=AIzaSyC7MWjEtDv_65Fte4FVuDZKFB5QEYtu1kA
+    dns:
+      - 192.168.10.184
     depends_on:
       postgres:
         condition: service_healthy

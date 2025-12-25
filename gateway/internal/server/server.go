@@ -93,9 +93,10 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 	rdpAsyncMonitor := rdp.NewAsyncMonitor()
 
 	// Create legacy session monitor for SSH (still works fine for text-based sessions)
+	// Create legacy session monitor for SSH (still works fine for text-based sessions)
 	sshMonitor := ssh.NewMonitor()
 
-	sshProxy := ssh.NewProxy(log, sshRecorder, sshMonitor)
+	sshProxy := ssh.NewProxy(log, sshRecorder, sshMonitor, cfg.GeminiAPIKey)
 	// Use async RDP proxy for enterprise scale
 	rdpProxy := rdp.NewProxyAsync("localhost:4822", log, rdpAsyncRecorder, rdpAsyncMonitor)
 
@@ -114,11 +115,11 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		cfg.Identity.URL,
 	)
 
-	userHandler := handlers.NewUserHandler(userRepo, log)
-	groupHandler := handlers.NewGroupHandler(groupRepo, log)
+	userHandler := handlers.NewUserHandler(userRepo, systemAuditRepo, log)
+	groupHandler := handlers.NewGroupHandler(groupRepo, systemAuditRepo, log)
 
-	targetHandler := handlers.NewTargetHandler(targetRepo, log)
-	zoneHandler := handlers.NewZoneHandler(zoneRepo, log)
+	targetHandler := handlers.NewTargetHandler(targetRepo, systemAuditRepo, log)
+	zoneHandler := handlers.NewZoneHandler(zoneRepo, systemAuditRepo, log)
 	auditHandler := handlers.NewAuditLogHandler(auditRepo, sshRecorder, log)
 	systemAuditHandler := handlers.NewSystemAuditLogHandler(systemAuditRepo, log)
 	monitorHandler := handlers.NewMonitorHandler(auditRepo, userRepo, sshMonitor, rdpAsyncMonitor, sshRecorder, log, cfg.DevMode)
@@ -128,9 +129,9 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 	// Initialize SSE broadcaster for real-time updates (before schedule handler)
 	sseBroadcaster := sse.NewBroadcaster()
 	sseHandler := handlers.NewSSEHandler(sseBroadcaster, log)
-	scheduleHandler := handlers.NewScheduleHandler(scheduleRepo, log, sseBroadcaster)
+	scheduleHandler := handlers.NewScheduleHandler(scheduleRepo, systemAuditRepo, log, sseBroadcaster)
 
-	identityHandler := handlers.NewIdentityHandler(cfg.Identity.URL, cfg.Orchestrator.URL, log)
+	identityHandler := handlers.NewIdentityHandler(cfg.Identity.URL, cfg.Orchestrator.URL, systemAuditRepo, log)
 	secretHandler := handlers.NewSecretHandler(vaultClient, log)
 
 	connectionHandler := handlers.NewConnectionHandler(
@@ -138,11 +139,13 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		targetRepo,
 		credRepo,
 		auditRepo,
+		systemAuditRepo,
 		sshProxy,
 		rdpProxy,
 		log,
 		scheduleRepo,
 		cfg.Activity.URL,
+		cfg.Identity.URL,
 	)
 
 	s := &Server{
