@@ -60,6 +60,18 @@ export default function TerminalClient({ wsUrl, onClose }: TerminalProps) {
         xtermRef.current = term
         fitAddonRef.current = fitAddon
 
+        // Custom key handler to allow clipboard shortcuts to propagate to the browser
+        term.attachCustomKeyEventHandler((e) => {
+          // Allow Ctrl+V, Ctrl+Shift+V, Shift+Insert to bubble (triggering paste)
+          if (e.type === 'keydown') {
+            if ((e.ctrlKey && e.key.toLowerCase() === 'v') ||
+              (e.shiftKey && e.key === 'Insert')) {
+              return false // Skip xterm processing, allow browser default
+            }
+          }
+          return true // Process other keys
+        })
+
         // Helper to safely fit terminal
         const safeFit = () => {
           if (isDisposed.current) return false
@@ -106,96 +118,83 @@ export default function TerminalClient({ wsUrl, onClose }: TerminalProps) {
           }
         }, 100)
 
-        // Setup keyboard event handler for React 19 compatibility
-        const captureKeyHandler = (e: KeyboardEvent) => {
+        // Use xterm.js onData event for all input handling
+        // This correctly handles all keys, control sequences, and pastes
+        term.onData(data => {
           if (isDisposed.current) return
-          const target = e.target as HTMLElement
-          if (!target?.classList?.contains('xterm-helper-textarea')) {
-            return
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(data)
           }
+        })
 
-          // Handle printable characters
-          if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
-            e.preventDefault()
-            e.stopImmediatePropagation()
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(e.key)
-            }
+        // Setup Paste Handler
+        const handlePaste = (e: ClipboardEvent) => {
+          if (isDisposed.current) return
+          e.preventDefault()
+          e.stopPropagation()
+
+          const text = e.clipboardData?.getData('text')
+          if (text && wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(text)
           }
-          // Enter key
-          else if (e.key === 'Enter') {
-            e.preventDefault()
-            e.stopImmediatePropagation()
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send('\r')
-            }
+        }
+        window.addEventListener('paste', handlePaste, true)
+        // @ts-ignore
+        term._pasteHandler = handlePaste
+
+        // Setup Drag and Drop Handler
+        const handleDragOver = (e: DragEvent) => {
+          e.preventDefault()
+          e.stopPropagation()
+          if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'copy'
           }
-          // Backspace
-          else if (e.key === 'Backspace') {
-            e.preventDefault()
-            e.stopImmediatePropagation()
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send('\x7f')
+        }
+
+        const handleDrop = async (e: DragEvent) => {
+          e.preventDefault()
+          e.stopPropagation()
+          if (isDisposed.current) return
+
+          if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+            const file = e.dataTransfer.files[0]
+            // Limit file size to 1MB for now to avoid blocking the shell/socket
+            if (file.size > 1024 * 1024) {
+              term.writeln('\r\n\x1b[31mError: File too large (max 1MB for drag-and-drop)\x1b[0m\r\n')
+              return
             }
-          }
-          // Ctrl+C
-          else if (e.key === 'c' && e.ctrlKey) {
-            e.preventDefault()
-            e.stopImmediatePropagation()
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send('\x03')
-            }
-          }
-          // Ctrl+D
-          else if (e.key === 'd' && e.ctrlKey) {
-            e.preventDefault()
-            e.stopImmediatePropagation()
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send('\x04')
-            }
-          }
-          // Tab
-          else if (e.key === 'Tab') {
-            e.preventDefault()
-            e.stopImmediatePropagation()
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send('\t')
-            }
-          }
-          // Arrow keys
-          else if (e.key === 'ArrowUp') {
-            e.preventDefault()
-            e.stopImmediatePropagation()
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send('\x1b[A')
-            }
-          }
-          else if (e.key === 'ArrowDown') {
-            e.preventDefault()
-            e.stopImmediatePropagation()
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send('\x1b[B')
-            }
-          }
-          else if (e.key === 'ArrowRight') {
-            e.preventDefault()
-            e.stopImmediatePropagation()
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send('\x1b[C')
-            }
-          }
-          else if (e.key === 'ArrowLeft') {
-            e.preventDefault()
-            e.stopImmediatePropagation()
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send('\x1b[D')
+
+            term.writeln(`\r\n\x1b[36mUploading ${file.name}...\x1b[0m\r\n`)
+
+            try {
+              const buffer = await file.arrayBuffer()
+              const bytes = new Uint8Array(buffer)
+              let binary = ''
+              for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i])
+              }
+              const base64 = btoa(binary)
+
+              if (wsRef.current?.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({
+                  type: 'file_upload',
+                  name: file.name,
+                  data: base64
+                }))
+              }
+            } catch (err) {
+              console.error('File read error:', err)
+              term.writeln(`\r\n\x1b[31mError reading file: ${err}\x1b[0m\r\n`)
             }
           }
         }
 
-        window.addEventListener('keydown', captureKeyHandler, true)
+        window.addEventListener('dragover', handleDragOver)
+        window.addEventListener('drop', handleDrop)
         // @ts-ignore
-        term._captureKeyHandler = captureKeyHandler
+        term._dragOverHandler = handleDragOver
+        // @ts-ignore
+        term._dropHandler = handleDrop
 
         // Connect WebSocket
         const ws = new WebSocket(wsUrl)
@@ -283,10 +282,19 @@ export default function TerminalClient({ wsUrl, onClose }: TerminalProps) {
         // @ts-ignore
         xtermRef.current._resizeObserver.disconnect()
       }
-      // @ts-ignore
-      if (xtermRef.current?._captureKeyHandler) {
+      if (xtermRef.current?._pasteHandler) {
         // @ts-ignore
-        window.removeEventListener('keydown', xtermRef.current._captureKeyHandler, true)
+        window.removeEventListener('paste', xtermRef.current._pasteHandler, true)
+      }
+      // @ts-ignore
+      if (xtermRef.current?._dragOverHandler) {
+        // @ts-ignore
+        window.removeEventListener('dragover', xtermRef.current._dragOverHandler)
+      }
+      // @ts-ignore
+      if (xtermRef.current?._dropHandler) {
+        // @ts-ignore
+        window.removeEventListener('drop', xtermRef.current._dropHandler)
       }
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.close()

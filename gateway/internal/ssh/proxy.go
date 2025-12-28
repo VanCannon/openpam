@@ -3,6 +3,7 @@ package ssh
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,12 +19,128 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// Proxy handles SSH protocol proxying over WebSocket
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// WSMessage is a helper for ReadData to return type+data
+// Ideally ReadData just returns data.
+// But we need to know if it's a resize or whatever.
+// The WebSocket Protocol here is JSON for control, or raw text?
+// Actually the code says:
+// messageType, data, err := wsConn.ReadMessage()
+// if messageType == websocket.TextMessage { ... resize/upload ... }
+// else { ... stdin ... }
+//
+// So we need to abstract this behavior.
+// Let's make `ReadData` return `([]byte, MessageType, error)`
+// where MessageType is an enum for Stdin, Resize, Upload.
+// OR we encapsulate parsing inside the WebSocketAdapter.
+
+type MsgType int
+
+const (
+	MsgTypeSignin MsgType = iota // Standard Input
+	MsgTypeResize                // Resize Event
+	MsgTypeUpload                // File Upload
+)
+
+// Msg represents a parsed message from the client
+type Msg struct {
+	Type    MsgType
+	Data    []byte // Payload for Stdin
+	Cols    int
+	Rows    int
+	Name    string // Filename for Upload
+	Content string // Base64 content for Upload
+}
+
+// We need to add Lock/Unlock to the interface context or the struct.
+// The original code had `wsMutex`. Let's put that in the adapter.
+
+type SafeWebSocketAdapter struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (w *SafeWebSocketAdapter) ReadData() (*Msg, error) {
+	// Read is safe to be concurrent with Write, but only one reader.
+	// We assume single reader loop.
+	msgType, data, err := w.conn.ReadMessage()
+	if err != nil {
+		return nil, err
+	}
+
+	if msgType == websocket.TextMessage {
+		var msgHeader struct {
+			Type string `json:"type"`
+		}
+		// Try to parse as JSON control message
+		if err := json.Unmarshal(data, &msgHeader); err == nil {
+			if msgHeader.Type == "resize" {
+				var resizeMsg struct {
+					Cols int
+					Rows int
+				}
+				if err := json.Unmarshal(data, &resizeMsg); err == nil {
+					return &Msg{Type: MsgTypeResize, Cols: resizeMsg.Cols, Rows: resizeMsg.Rows}, nil
+				}
+			} else if msgHeader.Type == "file_upload" {
+				var uploadMsg struct {
+					Name string
+					Data string
+				}
+				if err := json.Unmarshal(data, &uploadMsg); err == nil {
+					return &Msg{Type: MsgTypeUpload, Name: uploadMsg.Name, Content: uploadMsg.Data}, nil
+				}
+			}
+		}
+		// If not a control message (or invalid JSON), treat as raw text input
+		return &Msg{Type: MsgTypeSignin, Data: data}, nil
+	}
+	return &Msg{Type: MsgTypeSignin, Data: data}, nil
+}
+
+func (w *SafeWebSocketAdapter) WriteData(data []byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.conn.WriteMessage(websocket.BinaryMessage, data)
+}
+
+func (w *SafeWebSocketAdapter) Close() error {
+	return w.conn.Close()
+}
+
+func (w *SafeWebSocketAdapter) Type() string {
+	return "websocket"
+}
+
+// NewSafeWebSocketAdapter creates a new adapter with mutex
+func NewSafeWebSocketAdapter(conn *websocket.Conn) *SafeWebSocketAdapter {
+	return &SafeWebSocketAdapter{
+		conn: conn,
+	}
+}
+
+// ClientConnection interface update
+type ClientConnection interface {
+	ReadData() (*Msg, error)
+	WriteData(data []byte) error
+	Close() error
+	Type() string
+}
+
+// Proxy handles the SSH session
 type Proxy struct {
-	logger    *logger.Logger
-	recorder  *Recorder
-	monitor   *Monitor
-	aiService service.AIService
+	logger       *logger.Logger
+	recorder     *Recorder
+	monitor      *Monitor
+	aiService    service.AIService
+	outputBuffer []string
+	bufferMutex  sync.Mutex
 }
 
 // NewProxy creates a new SSH proxy
@@ -38,21 +155,27 @@ func NewProxy(log *logger.Logger, recorder *Recorder, monitor *Monitor, apiKey s
 	}
 
 	return &Proxy{
-		logger:    log,
-		recorder:  recorder,
-		monitor:   monitor,
-		aiService: ai,
+		logger:       log,
+		recorder:     recorder,
+		monitor:      monitor,
+		aiService:    ai,
+		outputBuffer: make([]string, 0, 200),
 	}
 }
 
-// Handle proxies an SSH connection over WebSocket
+// Handle manages the SSH session
 func (p *Proxy) Handle(
 	ctx context.Context,
-	wsConn *websocket.Conn,
+	clientConn ClientConnection,
 	target *models.Target,
 	creds *vault.Credentials,
 	auditLog *models.AuditLog,
 ) error {
+	p.logger.Info("Starting SSH session", map[string]interface{}{
+		"target": target.Hostname,
+		"user":   creds.Username,
+		"type":   clientConn.Type(),
+	})
 	// Build SSH client config
 	config, err := p.buildSSHConfig(creds)
 	if err != nil {
@@ -141,72 +264,118 @@ func (p *Proxy) Handle(
 	}
 
 	// Proxy data between WebSocket and SSH
+	// Proxy data between Client and SSH
 	var wg sync.WaitGroup
 	var bytesSent, bytesReceived int64
-	var wsMutex sync.Mutex              // Mutex to synchronize WebSocket writes
-	wsClosedChan := make(chan struct{}) // Signal when WebSocket closes
+	clientClosedChan := make(chan struct{}) // Signal when Client closes
 
-	// WebSocket -> SSH (user input)
+	// Client -> SSH (user input)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer stdin.Close()       // Close SSH stdin when WebSocket closes
-		defer close(wsClosedChan) // Signal that WebSocket closed
-		p.logger.Info("Starting WebSocket -> SSH loop with AI Interceptor")
+		defer stdin.Close()           // Close SSH stdin when WebSocket closes
+		defer close(clientClosedChan) // Signal that WebSocket closed
+		p.logger.Info("Starting Client -> SSH loop with AI Interceptor")
 
 		// AI Interceptor State
 		var inputBuffer []byte
-		inAIHeader := true  // True if we are at start of line waiting to see if it's '?'
-		isAIActive := false // True if we have detected '?' and are currently capturing a query
+		inAIHeader := true // True if we are at start of line
+		aiMode := "none"
 
-		// Helper to reset AI state
 		resetInterceptor := func() {
 			inputBuffer = nil
-			inAIHeader = true // Assume start of line initially/after enter
-			isAIActive = false
+			inAIHeader = true
+			inAIHeader = true
+			aiMode = "none"
 		}
 		resetInterceptor()
 
 		for {
-			messageType, data, err := wsConn.ReadMessage()
+			msg, err := clientConn.ReadData()
 			if err != nil {
-				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-					p.logger.Info("WebSocket closed by client")
-				} else {
-					p.logger.Debug("WebSocket read error", map[string]interface{}{"error": err.Error()})
-				}
+				// We assume any error here is a close or failure
+				p.logger.Info("Client read error or close", map[string]interface{}{"error": err.Error()})
 				return
 			}
 
-			// Handle Control Messages (Resize)
-			if messageType == websocket.TextMessage {
-				var controlMsg struct {
-					Type string `json:"type"`
-					Cols int    `json:"cols"`
-					Rows int    `json:"rows"`
+			// Handle Control Messages
+			if msg.Type == MsgTypeResize {
+				p.HandleResize(session, msg.Cols, msg.Rows)
+				continue
+			} else if msg.Type == MsgTypeUpload {
+				p.logger.Info("File upload received", map[string]interface{}{"name": msg.Name})
+
+				// Sanitize filename
+				name := msg.Name
+				if idx := strings.LastIndexAny(name, "/\\"); idx != -1 {
+					name = name[idx+1:]
 				}
-				if err := json.Unmarshal(data, &controlMsg); err == nil && controlMsg.Type == "resize" {
-					p.HandleResize(session, controlMsg.Cols, controlMsg.Rows)
-					continue
+
+				var cmd string
+				if osContext.Family == "windows" {
+					cmd = fmt.Sprintf("[IO.File]::WriteAllBytes('%s', [Convert]::FromBase64String('%s')); Write-Host 'File uploaded: %s'\r",
+						name, msg.Content, name)
+				} else {
+					cmd = fmt.Sprintf("echo '%s' | base64 -d > '%s'; echo 'File uploaded: %s'\n",
+						msg.Content, name, name)
 				}
+
+				stdin.Write([]byte(cmd))
+				continue
+			}
+
+			// Must be stdin data
+			data := msg.Data
+			if len(data) == 0 {
+				continue
 			}
 
 			// --- INTERCEPTION LOGIC ---
 
 			// Check for new line in this data packet to maintain state
-			hasNewline := bytes.Contains(data, []byte{13}) || bytes.Contains(data, []byte{10})
+			// We also treat Ctrl+C (3) and Ctrl+L (12) as "newlines" because they reset the prompt context
+			hasNewline := bytes.Contains(data, []byte{13}) ||
+				bytes.Contains(data, []byte{10}) ||
+				bytes.Contains(data, []byte{3}) ||
+				bytes.Contains(data, []byte{12})
 
 			// 1. Trigger Detection
 			// Only check for trigger if we are at the start of a line and AI is not already active
-			if !isAIActive && inAIHeader && len(data) > 0 {
-				if data[0] == '?' {
-					isAIActive = true
+			if aiMode == "none" && inAIHeader && len(data) > 0 {
+				if data[0] == '!' {
+					aiMode = "command"
+					inAIHeader = false
+				} else if data[0] == '@' {
+					// Immediate System Info Trigger
+					// We do not enter a buffering mode, we just execute and reset.
+					// But we must consume this character so it doesn't go to SSH.
+
+					// Format Info
+					infoMsg := fmt.Sprintf("\r\n\033[36m--- System Context ---\033[0m\r\n"+
+						"Family: %s\r\nDistro: %s\r\nUser: %s\r\nRoles: %v\r\nTools: %v\r\n"+
+						"\033[36m----------------------\033[0m\r\n",
+						osContext.Family, osContext.Distro, osContext.User, osContext.Roles, osContext.Tools)
+
+					// Local Echo Info
+					clientConn.WriteData([]byte(infoMsg))
+					clientConn.WriteData([]byte("\r\n")) // Extra newline
+
+					// We consumed the @ stroke.
+					// We should probably reset to a clean prompt state or just let user type.
+					// But the user physically typed '@', and we intercepted it.
+					// The cursor is technically past output now.
+					// Let's just reset interceptor and NOT forward '@'
+					resetInterceptor()
+					continue // output processed, skip forwarding
+
+				} else if data[0] == '?' {
+					aiMode = "error"
 					inAIHeader = false
 				}
 			}
 
 			// 2. Routing
-			if isAIActive {
+			if aiMode != "none" {
 				// --- AI MODE ---
 
 				// Handle Newline (Trigger Execution)
@@ -223,37 +392,78 @@ func (p *Proxy) Handle(
 					inputBuffer = append(inputBuffer, data[:nlIndex]...)
 
 					// 2. Echo data UP TO newline (suppress the newline itself)
-					// This keeps the cursor on the same line so we can erase it all.
-					wsMutex.Lock()
-					wsConn.WriteMessage(websocket.BinaryMessage, data[:nlIndex])
-					wsMutex.Unlock()
+					clientConn.WriteData(data[:nlIndex])
 
-					// Execute AI Query
+					// Execute AI Action
 					query := string(inputBuffer)
-					p.logger.Info("AI Trigger detected", map[string]interface{}{"query": query})
+					p.logger.Info("AI Trigger detected", map[string]interface{}{"mode": aiMode, "query": query})
 
-					// 3. Visual Cleanup
-					// We need to erase: len(inputBuffer) characters.
-					// We send backspace-space-backspace seq.
-					eraseSeq := bytes.Repeat([]byte("\b \b"), len(inputBuffer))
-					wsMutex.Lock()
-					wsConn.WriteMessage(websocket.BinaryMessage, eraseSeq)
-					wsMutex.Unlock()
+					// 3. Visual Cleanup (Erase query from terminal)
+					eraseSeq := bytes.Repeat([]byte("\b \b"), len(inputBuffer)+1) // +1 for trigger char
+					clientConn.WriteData(eraseSeq)
 
-					// 4. Call AI
-					suggestion, err := p.aiService.GenerateCommand(ctx, string(inputBuffer), osContext)
-					if err != nil {
-						suggestion = fmt.Sprintf("# AI Error: %v", err)
+					if aiMode == "command" {
+						// --- COMMAND GENERATION (!) ---
+						suggestion, err := p.aiService.GenerateCommand(ctx, query, osContext)
+						if err != nil {
+							suggestion = fmt.Sprintf("# AI Error: %v", err)
+						}
+						// Inject
+						stdin.Write([]byte(suggestion))
+
+					} else if aiMode == "error" {
+						// --- ERROR ANALYSIS (?) ---
+						// Parse optional number
+						lineCount := 20 // default
+						queryTrim := strings.TrimSpace(query)
+						if _, err := fmt.Sscanf(queryTrim, "%d", &lineCount); err == nil {
+							// Check bounds
+							if lineCount < 10 {
+								lineCount = 10
+							}
+							if lineCount > 200 {
+								lineCount = 200
+							}
+						}
+
+						// Get capture
+						p.bufferMutex.Lock()
+						totalLines := len(p.outputBuffer)
+						start := totalLines - lineCount
+						if start < 0 {
+							start = 0
+						}
+						captured := make([]string, len(p.outputBuffer[start:]))
+						copy(captured, p.outputBuffer[start:])
+						p.bufferMutex.Unlock()
+
+						// Call AI
+						analysis, err := p.aiService.AnalyzeError(ctx, query, captured, osContext)
+						if err != nil {
+							analysis = fmt.Sprintf("\r\n\033[31mAI Error: %v\033[0m", err)
+						} else {
+							// Colorize/Format analysis
+							analysis = fmt.Sprintf("\r\n\033[33m%s\033[0m\r\n", analysis)
+						}
+
+						// Local Echo result (do not inject to STDIN)
+						clientConn.WriteData([]byte(analysis))
+						// We probably want to restore prompt?
+						// Current flow: user typed `? 50<ENTER>`, we erased it.
+						// Then we printed huge block.
+						// The prompt is likely still there visually but maybe covered?
+						// Actually since we erased `? 50`, the cursor is back at prompt start.
+						// So printing analysis PUSHES the prompt down or overwrites?
+						// Standard terminal behavior: printing \r\n moves validly.
+						// We should probably print a fresh empty line or suggestion.
+						// For error analysis, we just show output.
+						// The user will likely have to hit enter to get a new prompt from shell.
 					}
-
-					// 5. Inject
-					stdin.Write([]byte(suggestion))
 
 					// Reset
 					resetInterceptor()
 
-					// Note: We ignore any data AFTER the newline in the same packet for simplicity.
-					// In a real typing scenario, it's unlikely to have more data immediately after Enter.
+					// Note: We ignore any data AFTER the newline
 					continue
 				}
 
@@ -261,9 +471,7 @@ func (p *Proxy) Handle(
 				inputBuffer = append(inputBuffer, data...)
 
 				// LOCAL ECHO (required since we blocked server echo)
-				wsMutex.Lock()
-				wsConn.WriteMessage(websocket.BinaryMessage, data)
-				wsMutex.Unlock()
+				clientConn.WriteData(data)
 
 				// Check for Backspace (only if no newline was handled)
 				if bytes.Contains(data, []byte{127}) {
@@ -279,14 +487,10 @@ func (p *Proxy) Handle(
 						}
 
 						// Visual backspace
-						wsMutex.Lock()
-						wsConn.WriteMessage(websocket.BinaryMessage, []byte("\b \b"))
-						wsMutex.Unlock()
+						clientConn.WriteData([]byte("\b \b"))
 					}
 
-					// If buffer is empty (user backspaced everything including '?'), treat as reset?
-					// Or just let them continue? If they delete '?', they might want to exit AI mode.
-					// Current logic: if buffer empty, reset.
+					// If buffer is empty (user backspaced everything including trigger), treat as reset?
 					if len(inputBuffer) == 0 {
 						resetInterceptor()
 					}
@@ -308,6 +512,10 @@ func (p *Proxy) Handle(
 				}
 
 				bytesSent += int64(len(data))
+
+				// Audit: Check for Encoded Commands (Ansible/PowerShell)
+				p.detectAndLogEncodedCommand(data)
+
 				if _, err := stdin.Write(data); err != nil {
 					p.logger.Error("Failed to write to SSH stdin", map[string]interface{}{"error": err.Error()})
 					return
@@ -329,46 +537,52 @@ func (p *Proxy) Handle(
 			n, err := stdout.Read(buffer)
 			if err != nil {
 				if err != io.EOF {
-					p.logger.Debug("SSH stdout read error", map[string]interface{}{
-						"error": err.Error(),
-					})
+					p.logger.Error("Error reading from SSH stdout", map[string]interface{}{"error": err.Error()})
 				} else {
-					p.logger.Debug("SSH stdout EOF")
+					p.logger.Info("SSH stdout closed (EOF)")
 				}
-				return
+				break
 			}
+			p.logger.Debug("Read from SSH stdout", map[string]interface{}{"bytes": n})
 
-			p.logger.Info("Received data from SSH stdout", map[string]interface{}{
-				"bytes": n,
-				"data":  string(buffer[:n]),
-			})
+			if n > 0 {
+				bytesReceived += int64(n)
+				data := buffer[:n]
 
-			bytesReceived += int64(n)
+				// Send to Client
+				if err := clientConn.WriteData(data); err != nil {
+					p.logger.Error("Failed to write to Client", map[string]interface{}{"error": err.Error()})
+					return
+				}
 
-			data := buffer[:n]
+				// Capture Output for AI Analysis
+				p.bufferMutex.Lock()
+				lines := strings.Split(string(data), "\n")
+				for _, line := range lines {
+					if line == "" {
+						continue
+					}
+					// Clean up basics (cr)
+					line = strings.TrimRight(line, "\r")
+					p.outputBuffer = append(p.outputBuffer, line)
+				}
+				// Trim buffer
+				if len(p.outputBuffer) > 200 {
+					p.outputBuffer = p.outputBuffer[len(p.outputBuffer)-200:]
+				}
+				p.bufferMutex.Unlock()
 
-			// Send to WebSocket
-			p.logger.Debug("Sending data to WebSocket", map[string]interface{}{"bytes": n})
-			wsMutex.Lock()
-			err = wsConn.WriteMessage(websocket.BinaryMessage, data)
-			wsMutex.Unlock()
+				p.logger.Debug("Successfully sent data to Client")
 
-			if err != nil {
-				p.logger.Error("Failed to write to WebSocket", map[string]interface{}{
-					"error": err.Error(),
-				})
-				return
-			}
-			p.logger.Debug("Successfully sent data to WebSocket")
+				// Record output if enabled
+				if recWriter != nil {
+					recWriter.Write(data)
+				}
 
-			// Record output if enabled
-			if recWriter != nil {
-				recWriter.Write(data)
-			}
-
-			// Broadcast to live monitors
-			if p.monitor != nil {
-				p.monitor.Broadcast(auditLog.ID.String(), data)
+				// Broadcast to live monitors
+				if p.monitor != nil {
+					p.monitor.Broadcast(auditLog.ID.String(), data)
+				}
 			}
 		}
 	}()
@@ -391,13 +605,9 @@ func (p *Proxy) Handle(
 
 			data := buffer[:n]
 
-			// Send to WebSocket
-			wsMutex.Lock()
-			err = wsConn.WriteMessage(websocket.BinaryMessage, data)
-			wsMutex.Unlock()
-
-			if err != nil {
-				p.logger.Error("Failed to write stderr to WebSocket", map[string]interface{}{
+			// Send to Client
+			if err := clientConn.WriteData(data); err != nil {
+				p.logger.Error("Failed to write stderr to Client", map[string]interface{}{
 					"error": err.Error(),
 				})
 				return
@@ -414,12 +624,12 @@ func (p *Proxy) Handle(
 	select {
 	case <-ctx.Done():
 		p.logger.Info("SSH session cancelled by context")
-		wsConn.Close()
+		clientConn.Close()
 		wg.Wait()
 		return ctx.Err()
-	case <-wsClosedChan:
-		// WebSocket closed by client (user clicked X) - terminate SSH session
-		p.logger.Info("WebSocket closed by client, terminating SSH session")
+	case <-clientClosedChan:
+		// Client connection closed - terminate SSH session
+		p.logger.Info("Client connection closed, terminating SSH session")
 		session.Close()
 		wg.Wait()
 		auditLog.BytesSent = bytesSent
@@ -428,9 +638,11 @@ func (p *Proxy) Handle(
 		return nil
 	case err := <-done:
 		// SSH session ended - close WebSocket immediately to unblock goroutines
-		p.logger.Info("SSH session ended, closing WebSocket")
-		wsConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "SSH session ended"))
-		wsConn.Close()
+		// SSH session ended - close Client connection immediately
+		p.logger.Info("SSH session ended, closing Client connection")
+		// We could send a close message if protocol supports it
+		// For now just close underlying transport
+		clientConn.Close()
 
 		wg.Wait() // Wait for goroutines to finish (they'll exit when WebSocket closes)
 		auditLog.BytesSent = bytesSent
@@ -661,4 +873,58 @@ func (p *Proxy) gatherContext(ctx context.Context, client *ssh.Client, target *m
 	}
 
 	return sysCtx
+}
+
+// detectAndLogEncodedCommand checks if the input contains a Base64 encoded PowerShell command
+// and logs the decoded version for auditing purposes.
+func (p *Proxy) detectAndLogEncodedCommand(data []byte) {
+	input := string(data)
+	// Simple regex to catch standard EncodedCommand usage
+	// patterns: powershell -EncodedCommand <B64>
+	//           pwsh -e <B64>
+	//           powershell.exe /e <B64>
+	// We look for "-e", "-ec", "-EncodedCommand" followed by a space and a blob.
+	// Note: This is a heuristic.
+
+	lowerInput := strings.ToLower(input)
+	if !strings.Contains(lowerInput, "powershell") && !strings.Contains(lowerInput, "pwsh") {
+		return
+	}
+
+	// Indices of potential flags
+	flags := []string{"-encodedcommand", "-ec", "-e", "/encodedcommand", "/ec", "/e"}
+	var payload string
+
+	for _, flag := range flags {
+		idx := strings.Index(lowerInput, flag)
+		if idx != -1 {
+			// Found flag. The payload should be after it.
+			// Format: flag + whitespace + payload
+			remaining := input[idx+len(flag):]
+			trimmed := strings.TrimSpace(remaining)
+			// Payload is efficiently the next token
+			parts := strings.Fields(trimmed)
+			if len(parts) > 0 {
+				payload = parts[0]
+				break
+			}
+		}
+	}
+
+	if payload != "" {
+		// Attempt Decode
+		// PowerShell uses UTF-16LE encoding for the inner string
+		decodedBytes, err := base64.StdEncoding.DecodeString(payload)
+		if err == nil {
+			// Convert UTF-16LE to UTF-8 for logging
+			// If strictly ASCII, it appears as "c o m m a n d" (null bytes interleaved)
+			// We can strip null bytes for a cleaner log if it's just ASCII
+			cleanPayload := strings.ReplaceAll(string(decodedBytes), "\x00", "")
+
+			p.logger.Info("AUDIT: Decoded PowerShell Command", map[string]interface{}{
+				"decoded_cmd": cleanPayload,
+				"raw_size":    len(payload),
+			})
+		}
+	}
 }

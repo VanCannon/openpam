@@ -377,9 +377,11 @@ export default function AuditorPage() {
             // Strip header/footer
             let content = data.replace(/^=== SSH Session Recording ===[\s\S]*?={29}\s+/, '')
             content = content.replace(/\s+={29}\s+End Time:[\s\S]*$/, '')
-            content = content.replace(/\x7F/g, '') // Filter DEL characters
 
-            console.log('Processed content length:', content.length)
+            // Standard Mode: We do NOT strip Alt Buffer sequences (\u001b[?1049h etc.)
+            // This allows xterm.js to handle them naturally (opening/closing the alt buffer).
+
+
 
             if (!content || content.trim().length === 0) {
                 content = '[No recording content found]\r\n'
@@ -704,6 +706,7 @@ export default function AuditorPage() {
                         </div>
                     </div>
                 </div>
+
             </div>
         </div>
     )

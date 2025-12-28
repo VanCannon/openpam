@@ -64,7 +64,7 @@ export default function SessionPlayerPage() {
                         foreground: '#d4d4d4',
                         cursor: '#d4d4d4',
                     },
-                    convertEol: true,
+                    convertEol: false, // Raw PTY output usually has CR/LF
                 })
 
                 const fitAddon = new FitAddon()
@@ -169,6 +169,7 @@ export default function SessionPlayerPage() {
 
             // Parse data (strip header/footer)
             let content = data
+            console.log('RAW RECORDING START (first 200 chars):', JSON.stringify(content.substring(0, 200)))
 
             // Strip header using regex
             content = content.replace(/^=== SSH Session Recording ===[\s\S]*?={29}\s+/, '')
@@ -179,6 +180,21 @@ export default function SessionPlayerPage() {
             if (!content) {
                 content = 'No recording content found or empty session.'
             }
+
+            // Filter out Alternate Screen Buffer sequences to ensure interactive sessions (nano, vim)
+            // are rendered to the main buffer and preserved in scrollback history.
+            // \x1b[?1049h (Enable Alt Screen) / l (Disable)
+            // \x1b[?1047h (Enable Alt Screen) / l (Disable) - Common alias
+            // \x1b[?47h (Enable Alt Screen - Legacy) / l (Disable)
+            // \x1b[2J (Clear Screen) - Prevent clearing history on exit
+            // \x1b[H (Home) & \x1b[x;yH (Cursor Pos) - Prevent overwriting, unroll logical history
+            // \x1b[J (Erase Down) - Prevent clearing content
+            content = content.replace(/\x1b\[\?1049[hl]/g, '')
+            content = content.replace(/\x1b\[\?1047[hl]/g, '')
+            content = content.replace(/\x1b\[\?47[hl]/g, '')
+            content = content.replace(/\x1b\[2J/g, '')
+            content = content.replace(/\x1b\[J/g, '')
+            content = content.replace(/\x1b\[\d*(;\d*)*[Hf]/g, '') // Strip cursor positioning
 
             // Filter out DEL characters (ASCII 127)
             const beforeLength = content.length
@@ -250,6 +266,9 @@ export default function SessionPlayerPage() {
                         <div ref={terminalRef} className="flex-1 p-2" />
                     </div>
                 )}
+                <div className="mt-4 p-2 bg-red-900/50 border border-red-500 rounded text-red-200 text-xs font-mono">
+                    DEBUG MODE ACTIVE: v4 - Unrolling Enabled. If you see this, the code is updated.
+                </div>
             </main>
         </div>
     )

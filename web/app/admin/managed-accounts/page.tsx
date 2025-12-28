@@ -6,21 +6,12 @@ import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 
-interface User {
-    id: string
-    email: string
-    display_name: string
-    role: string
-    enabled: boolean
-    source: string
-    created_at: string
-    last_login_at?: string
-}
+import { ManagedAccount } from '@/types'
 
 export default function ManagedAccountsPage() {
     const { user, loading } = useAuth()
     const router = useRouter()
-    const [users, setUsers] = useState<User[]>([])
+    const [accounts, setAccounts] = useState<ManagedAccount[]>([])
     const [loadingUsers, setLoadingUsers] = useState(true)
 
     useEffect(() => {
@@ -33,7 +24,7 @@ export default function ManagedAccountsPage() {
         setLoadingUsers(true)
         api.listManagedAccounts()
             .then(res => {
-                setUsers(res.accounts || [])
+                setAccounts(res.accounts || [])
             })
             .catch(err => console.error('Failed to fetch users:', err))
             .finally(() => setLoadingUsers(false))
@@ -87,33 +78,33 @@ export default function ManagedAccountsPage() {
                                     <tr>
                                         <td colSpan={7} className="px-6 py-4 text-center text-sm text-muted-foreground">Loading...</td>
                                     </tr>
-                                ) : users.length === 0 ? (
+                                ) : accounts.length === 0 ? (
                                     <tr>
                                         <td colSpan={7} className="px-6 py-4 text-center text-sm text-muted-foreground">No managed accounts found. Import users from the AD Sync page.</td>
                                     </tr>
                                 ) : (
-                                    users.map((user) => (
-                                        <tr key={user.id}>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">{user.display_name}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{user.email}</td>
+                                    accounts.map((account) => (
+                                        <tr key={account.id}>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">{account.display_name}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{account.email || account.user_principal_name || '-'}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                                                 <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                                                    {user.role}
+                                                    {account.source || 'AD'}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
-                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${user.enabled ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${account.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                                                     }`}>
-                                                    {user.enabled ? 'Enabled' : 'Disabled'}
+                                                    {account.status}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{new Date(user.created_at).toLocaleString()}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{account.created_at ? new Date(account.created_at).toLocaleString() : '-'}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
-                                                {user.last_login_at ? new Date(user.last_login_at).toLocaleString() : 'Never'}
+                                                -
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                                                 <button
-                                                    onClick={() => handleDelete(user.id)}
+                                                    onClick={() => handleDelete(account.id)}
                                                     className="px-3 py-1 bg-red-100 text-red-800 rounded-md hover:bg-red-200 text-xs font-medium"
                                                 >
                                                     Delete

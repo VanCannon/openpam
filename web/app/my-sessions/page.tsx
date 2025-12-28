@@ -364,16 +364,14 @@ export default function MySessionsPage() {
 
     const loadRecording = async (term: XTerm, sessionId: string) => {
         try {
-            console.log('Fetching recording for session:', sessionId)
             const data = await api.getRecording(sessionId)
             console.log('Recording data received, length:', data.length)
 
             // Strip header/footer
             let content = data.replace(/^=== SSH Session Recording ===[\s\S]*?={29}\s+/, '')
             content = content.replace(/\s+={29}\s+End Time:[\s\S]*$/, '')
-            content = content.replace(/\x7F/g, '') // Filter DEL characters
 
-            console.log('Processed content length:', content.length)
+
 
             if (!content || content.trim().length === 0) {
                 content = '[No recording content found]\r\n'
@@ -686,6 +684,7 @@ export default function MySessionsPage() {
                         </div>
                     </div>
                 </div>
+
             </div>
         </div>
     )

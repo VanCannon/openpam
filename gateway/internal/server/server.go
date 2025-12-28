@@ -40,6 +40,7 @@ type Server struct {
 	tokenManager      *auth.TokenManager
 	sessionStore      auth.SessionStore
 	sseBroadcaster    *sse.Broadcaster
+	sshServer         *ssh.SSHServer
 }
 
 // New creates a new server instance
@@ -97,6 +98,13 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 	sshMonitor := ssh.NewMonitor()
 
 	sshProxy := ssh.NewProxy(log, sshRecorder, sshMonitor, cfg.GeminiAPIKey)
+
+	// Initialize schedule repository needed for access control
+	scheduleRepo := repository.NewScheduleRepository(db)
+
+	// Initialize Native SSH Server
+	sshServer := ssh.NewSSHServer(log, sshProxy, targetRepo, userRepo, credRepo, auditRepo, scheduleRepo, vaultClient)
+
 	// Use async RDP proxy for enterprise scale
 	rdpProxy := rdp.NewProxyAsync("localhost:4822", log, rdpAsyncRecorder, rdpAsyncMonitor)
 
@@ -124,7 +132,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 	systemAuditHandler := handlers.NewSystemAuditLogHandler(systemAuditRepo, log)
 	monitorHandler := handlers.NewMonitorHandler(auditRepo, userRepo, sshMonitor, rdpAsyncMonitor, sshRecorder, log, cfg.DevMode)
 
-	scheduleRepo := repository.NewScheduleRepository(db)
+	// scheduleRepo is already initialized above
 
 	// Initialize SSE broadcaster for real-time updates (before schedule handler)
 	sseBroadcaster := sse.NewBroadcaster()
@@ -166,6 +174,7 @@ func New(cfg *config.Config, db *database.DB, vaultClient *vault.Client, log *lo
 		tokenManager:      tokenManager,
 		sessionStore:      sessionStore,
 		sseBroadcaster:    sseBroadcaster,
+		sshServer:         sshServer,
 	}
 
 	// Zone routes - support both GET and POST on /api/v1/zones
@@ -319,9 +328,17 @@ func (s *Server) GetBroadcaster() *sse.Broadcaster {
 func (s *Server) Start() error {
 	s.logger.Info("Starting OpenPAM Gateway", map[string]interface{}{
 		"addr":      s.httpServer.Addr,
+		"ssh_port":  s.config.Server.SSHPort,
 		"zone_type": s.config.Zone.Type,
 		"zone_name": s.config.Zone.Name,
 	})
+
+	// Start SSH Server
+	if err := s.sshServer.Start(s.config.Server.SSHPort); err != nil {
+		s.logger.Error("Failed to start SSH server", map[string]interface{}{"error": err.Error()})
+		// We could fail hard, or just log. For now, failure to bind SSH is critical for this task.
+		return err
+	}
 
 	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("failed to start server: %w", err)
@@ -341,6 +358,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		})
 		return err
 	}
+
+	// Stop SSH Server
+	s.sshServer.Stop()
 
 	// Close database connection
 	if err := s.db.Close(); err != nil {

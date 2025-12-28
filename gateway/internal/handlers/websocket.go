@@ -713,7 +713,8 @@ func (h *ConnectionHandler) handleSSHConnection(
 		"username": creds.Username,
 	})
 
-	err := h.sshProxy.Handle(ctx, conn, target, creds, auditLog)
+	adapter := ssh.NewSafeWebSocketAdapter(conn)
+	err := h.sshProxy.Handle(ctx, adapter, target, creds, auditLog)
 	if err != nil {
 		return fmt.Errorf("SSH proxy error: %w", err)
 	}

@@ -43,6 +43,7 @@ type IdentityConfig struct {
 type ServerConfig struct {
 	Host         string
 	Port         int
+	SSHPort      int
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
@@ -102,6 +103,7 @@ func Load() (*Config, error) {
 		Server: ServerConfig{
 			Host:         getEnv("SERVER_HOST", "0.0.0.0"),
 			Port:         getEnvInt("SERVER_PORT", 8080),
+			SSHPort:      getEnvInt("SSH_PORT", 2222),
 			ReadTimeout:  getEnvDuration("SERVER_READ_TIMEOUT", 15*time.Second),
 			WriteTimeout: getEnvDuration("SERVER_WRITE_TIMEOUT", 15*time.Second),
 			IdleTimeout:  getEnvDuration("SERVER_IDLE_TIMEOUT", 60*time.Second),

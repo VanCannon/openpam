@@ -23,6 +23,7 @@ type SystemContext struct {
 // AIService defines the interface for AI command generation
 type AIService interface {
 	GenerateCommand(ctx context.Context, query string, sysCtx SystemContext) (string, error)
+	AnalyzeError(ctx context.Context, query string, outputLines []string, sysCtx SystemContext) (string, error)
 }
 
 // MockAIService implements AIService with predefined responses
@@ -71,6 +72,11 @@ func (s *MockAIService) GenerateCommand(ctx context.Context, query string, sysCt
 
 	// Fallback
 	return fmt.Sprintf("# AI could not generate a confident command for: %s", query), nil
+}
+
+// AnalyzeError returns a mocked error analysis
+func (s *MockAIService) AnalyzeError(ctx context.Context, query string, outputLines []string, sysCtx SystemContext) (string, error) {
+	return "# AI Error Analysis: Detailed explanation of the error based on mock logs.", nil
 }
 
 // GeminiAIService implements AIService using Google's Gemini API
@@ -219,6 +225,106 @@ func (s *GeminiAIService) GenerateCommand(ctx context.Context, query string, sys
 			}
 
 			// 5xx or other errors -> maybe retry?
+			lastErr = fmt.Errorf("model %s returned status %s", model, resp.Status)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+	}
+
+	return "", fmt.Errorf("all models failed. last error: %w", lastErr)
+}
+
+// AnalyzeError calls the Gemini API to analyze an error based on terminal output
+func (s *GeminiAIService) AnalyzeError(ctx context.Context, query string, outputLines []string, sysCtx SystemContext) (string, error) {
+	// Prioritized list of models
+	models := []string{
+		"gemini-3-flash",
+		"gemini-2.5-flash",
+	}
+
+	// Construct system prompt
+	contextDesc := fmt.Sprintf("OS: %s (%s).", sysCtx.Family, sysCtx.Distro)
+
+	systemPrompt := fmt.Sprintf("You are an expert systems troubleshooter. Context: %s\n"+
+		"The user has encountered an error in their terminal. \n"+
+		"You will be provided with the last few lines of terminal output and an optional user query.\n"+
+		"Analyze the output, identify the error, and provide a concise explanation and a suggested fix.\n"+
+		"Format your response as a short paragraph followed by a code block with the fix if applicable.",
+		contextDesc)
+
+	// Combine output lines
+	joinedOutput := strings.Join(outputLines, "\n")
+
+	prompt := fmt.Sprintf("%s\n\nTerminal Output:\n```\n%s\n```\n\nUser Query: %s", systemPrompt, joinedOutput, query)
+
+	requestBody := map[string]interface{}{
+		"contents": []map[string]interface{}{
+			{
+				"parts": []map[string]interface{}{
+					{"text": prompt},
+				},
+			},
+		},
+		"generationConfig": map[string]interface{}{
+			"temperature": 0.2,
+		},
+	}
+
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	var lastErr error
+
+	// Iterate through models
+	for _, model := range models {
+		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", model, s.apiKey)
+
+		// Retry loop
+		maxRetries := 2
+		for i := 0; i < maxRetries; i++ {
+			req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
+			if err != nil {
+				return "", fmt.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := s.client.Do(req)
+			if err != nil {
+				lastErr = err
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode == http.StatusOK {
+				var result struct {
+					Candidates []struct {
+						Content struct {
+							Parts []struct {
+								Text string `json:"text"`
+							} `json:"parts"`
+						} `json:"content"`
+					} `json:"candidates"`
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+					lastErr = fmt.Errorf("failed to decode response from %s: %w", model, err)
+					break
+				}
+				if len(result.Candidates) == 0 || len(result.Candidates[0].Content.Parts) == 0 {
+					lastErr = fmt.Errorf("no content generated from %s", model)
+					break
+				}
+				analysis := result.Candidates[0].Content.Parts[0].Text
+				return strings.TrimSpace(analysis), nil
+			}
+
+			if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusNotFound {
+				lastErr = fmt.Errorf("model %s returned status %s", model, resp.Status)
+				break
+			}
+
 			lastErr = fmt.Errorf("model %s returned status %s", model, resp.Status)
 			time.Sleep(500 * time.Millisecond)
 			continue

@@ -126,6 +126,7 @@ services:
     container_name: openpam-gateway
     ports:
       - "8080:8080"
+      - "2222:2222"
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
