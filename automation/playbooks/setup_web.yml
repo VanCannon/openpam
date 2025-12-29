@@ -1,0 +1,15 @@
+---
+- name: Setup Apache Web Server
+  hosts: web_servers
+  become: yes  # Runs as sudo
+  tasks:
+    - name: Ensure Apache is installed
+      apt:
+        name: apache2
+        state: present
+
+    - name: Start Apache service
+      service:
+        name: apache2
+        state: started
+        enabled: yes

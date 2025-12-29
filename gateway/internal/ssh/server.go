@@ -3,6 +3,7 @@ package ssh
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"sync"
@@ -146,17 +147,27 @@ func (s *SSHServer) handleConnection(nConn net.Conn, config *ssh.ServerConfig) {
 
 	// Accept Channels
 	for newChannel := range chans {
-		if newChannel.ChannelType() != "session" {
+		// NewChannel Handler
+		if newChannel.ChannelType() == "session" {
+			channel, requests, err := newChannel.Accept()
+			if err != nil {
+				continue
+			}
+			go s.handleSession(conn, channel, requests)
+		} else if newChannel.ChannelType() == "direct-tcpip" {
+			// Handle SSH Tunneling (ProxyCommand)
+			channel, requests, err := newChannel.Accept()
+			if err != nil {
+				continue
+			}
+			// Parse payload for direct-tcpip: host string, port uint32, originator string, originator_port uint32
+			// We'll parse inside the handler or just pass it through
+			// Actually, we need to manually trigger the proxy logic here
+			go s.handleDirectTCPIP(conn, channel, requests, newChannel.ExtraData())
+		} else {
 			newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
 			continue
 		}
-
-		channel, requests, err := newChannel.Accept()
-		if err != nil {
-			continue
-		}
-
-		go s.handleSession(conn, channel, requests)
 	}
 }
 
@@ -381,8 +392,180 @@ func (s *SSHChannelAdapter) Close() error {
 	return s.Channel.Close()
 }
 
+func (s *SSHChannelAdapter) NegotiateSession() (SessionMode, string, error) {
+	// We need to wait for a request: "shell", "exec", "pty-req", "env"
+	// Since this is called once at start, we loop until we determine mode
+	for req := range s.Reqs {
+		switch req.Type {
+		case "shell":
+			req.Reply(true, nil)
+			return ModeShell, "", nil
+		case "exec":
+			// Parse command from payload
+			// Payload is string (uint32 length + bytes)
+			// But ssh.Unmarshal handles struct-field-tag based parsing if we had one.
+			// Or simple manual parsing: 4 bytes length, then string.
+			// Actually ssh payload for exec is just a string.
+			// Let's rely on standard helper or just parse manually.
+			if len(req.Payload) < 4 {
+				req.Reply(false, nil)
+				continue
+			}
+			cmdLen := int(req.Payload[0])<<24 | int(req.Payload[1])<<16 | int(req.Payload[2])<<8 | int(req.Payload[3])
+			if len(req.Payload) < 4+cmdLen {
+				req.Reply(false, nil)
+				continue
+			}
+			cmd := string(req.Payload[4 : 4+cmdLen])
+			req.Reply(true, nil)
+			return ModeExec, cmd, nil
+		case "pty-req":
+			// Authentically, Ansible might send pty-req before exec if forced, but usually not.
+			// If we get pty-req, we just say yes and keep waiting for shell/exec
+			req.Reply(true, nil)
+		case "env":
+			req.Reply(true, nil)
+		default:
+			req.Reply(false, nil)
+		}
+	}
+	return ModeShell, "", fmt.Errorf("channel closed before session negotiation")
+}
+
 func (s *SSHChannelAdapter) Type() string {
 	return "ssh"
+}
+
+func (s *SSHChannelAdapter) SendExitStatus(status uint32) error {
+	// Payload: uint32 exit_status
+	payload := make([]byte, 4)
+	payload[0] = byte(status >> 24)
+	payload[1] = byte(status >> 16)
+	payload[2] = byte(status >> 8)
+	payload[3] = byte(status)
+
+	_, err := s.Channel.SendRequest("exit-status", false, payload)
+	return err
+}
+
+// handleDirectTCPIP handles port forwarding requests (ProxyCommand)
+func (s *SSHServer) handleDirectTCPIP(conn *ssh.ServerConn, channel ssh.Channel, requests <-chan *ssh.Request, payload []byte) {
+	defer channel.Close()
+
+	// 1. Parse Tunnel Request Payload
+	// Format: [host string] [port uint32] [originator string] [originator_port uint32]
+	var req struct {
+		DestAddr string
+		DestPort uint32
+		OrigAddr string
+		OrigPort uint32
+	}
+	if err := ssh.Unmarshal(payload, &req); err != nil {
+		channel.Stderr().Write([]byte("Invalid direct-tcpip payload\n"))
+		return
+	}
+
+	// 2. Validate Access (Reuse similar logic to handleSession, but for tunneling)
+	// The Username format is still "GatewayUser#TargetUser@Hostname" (from the outer connection)
+	// But ProxyCommand uses %h:%p for the destination.
+	// NOTE: ProxyCommand ssh -W %h:%p connects to the Gateway, then asks Gateway to connect to %h:%p.
+	// The Gateway Authentication (ssh ... user@gateway) validates the initial access.
+	// We must ensure the user has rights to connect to req.DestAddr.
+
+	// Parse Identity: GatewayUser#TargetUser@TargetHost
+	// Note: When tunneling, the "TargetHost" in the username MUST match the requested DestAddr
+	// OR be consistent.
+	userInput := conn.User()
+	parts := strings.Split(userInput, "#")
+
+	var gatewayUserEmail string
+	if len(parts) == 2 {
+		gatewayUserEmail = parts[0]
+	} else {
+		// Fallback: If just "GatewayUser", maybe we allow tunneling based on DestAddr alone?
+		// But our permission model is rigorous.
+		channel.Stderr().Write([]byte("Access Denied: Format must be GatewayUser#TargetUser@TargetHost\n"))
+		return
+	}
+
+	// Parse the rest to find TargetHost from username string to validate against requested tunnel
+	// targetPart := parts[1] // TargetUser@TargetHost
+	// We already do this in handleSession. Let's do a simplified check here.
+	// Actually, we should allow the tunnel to proceed if a valid schedule exists for the requested DestAddr.
+
+	// 3. Resolve Constraints
+	// This logic is duplicated from handleSession, ideally refactor. For MVP, we inline.
+	ctx := context.Background()
+	user, err := s.userRepo.GetByEmail(ctx, gatewayUserEmail)
+	if err != nil {
+		channel.Stderr().Write([]byte("Access Denied: Gateway User not found\n"))
+		return
+	}
+
+	// Find Target by DestAddr (Hostname or IP)
+	// In direct-tcpip, DestAddr is what ssh -W passed (e.g. 192.168.10.189)
+	targetName := req.DestAddr
+
+	// Resolve Target
+	allTargets, _ := s.targetRepo.List(ctx, 1000, 0) // Should optimize
+	var target *models.Target
+	for _, t := range allTargets {
+		if strings.EqualFold(t.Hostname, targetName) || strings.EqualFold(t.Name, targetName) {
+			target = t
+			break
+		}
+	}
+	if target == nil {
+		channel.Stderr().Write([]byte(fmt.Sprintf("Target %s not found\n", targetName)))
+		return
+	}
+
+	// Check Schedule
+	activeStatus := models.ScheduleStatusActive
+	approvedStatus := models.ApprovalStatusApproved
+	schedules, _ := s.scheduleRepo.List(ctx, &user.ID, &target.ID, &activeStatus, &approvedStatus, nil)
+	// ... filtering logic ...
+	hasSchedule := false
+	now := time.Now()
+	for _, sch := range schedules {
+		if (sch.StartTime.Before(now) || sch.StartTime.Equal(now)) && sch.EndTime.After(now) {
+			hasSchedule = true
+			break
+		}
+	}
+	// Check Standing
+	if !hasSchedule {
+		stType := "standing"
+		standing, _ := s.scheduleRepo.List(ctx, &user.ID, &target.ID, &activeStatus, &approvedStatus, &stType)
+		if len(standing) > 0 {
+			hasSchedule = true
+		}
+	}
+
+	if !hasSchedule {
+		channel.Stderr().Write([]byte("Access Denied: No active schedule for this target\n"))
+		return
+	}
+
+	// 4. Establish backend connection
+	// We simply dial the target address using net.Dial
+	// The proxy command expects a raw TCP stream
+
+	dest := fmt.Sprintf("%s:%d", req.DestAddr, req.DestPort)
+	remoteConn, err := net.Dial("tcp", dest)
+	if err != nil {
+		channel.Stderr().Write([]byte(fmt.Sprintf("Failed to connect to target %s: %v\n", dest, err)))
+		return
+	}
+	defer remoteConn.Close()
+
+	// 5. Pipe Data
+	// Use io.Copy in both directions
+	go func() {
+		io.Copy(channel, remoteConn)
+		channel.Close()
+	}()
+	io.Copy(remoteConn, channel)
 }
 
 // Helper for key gen

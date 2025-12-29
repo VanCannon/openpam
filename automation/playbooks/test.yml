@@ -1,0 +1,8 @@
+---
+- name: Test Playbook
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Debug message
+      debug:
+        msg: "Hello from OpenPAM Automation Service! Target: {{ inventory_hostname }}"

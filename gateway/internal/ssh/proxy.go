@@ -118,6 +118,16 @@ func (w *SafeWebSocketAdapter) Type() string {
 	return "websocket"
 }
 
+func (w *SafeWebSocketAdapter) NegotiateSession() (SessionMode, string, error) {
+	// WebSockets are always interactive shells
+	return ModeShell, "", nil
+}
+
+func (w *SafeWebSocketAdapter) SendExitStatus(status uint32) error {
+	// WebSockets don't use SSH exit status, they just close
+	return nil
+}
+
 // NewSafeWebSocketAdapter creates a new adapter with mutex
 func NewSafeWebSocketAdapter(conn *websocket.Conn) *SafeWebSocketAdapter {
 	return &SafeWebSocketAdapter{
@@ -125,12 +135,22 @@ func NewSafeWebSocketAdapter(conn *websocket.Conn) *SafeWebSocketAdapter {
 	}
 }
 
+// SessionMode defines the type of SSH session
+type SessionMode int
+
+const (
+	ModeShell SessionMode = iota
+	ModeExec
+)
+
 // ClientConnection interface update
 type ClientConnection interface {
 	ReadData() (*Msg, error)
 	WriteData(data []byte) error
 	Close() error
 	Type() string
+	NegotiateSession() (SessionMode, string, error)
+	SendExitStatus(status uint32) error
 }
 
 // Proxy handles the SSH session
@@ -215,41 +235,77 @@ func (p *Proxy) Handle(
 	})
 	// -------------------------------
 
-	// Set up terminal modes
-	modes := ssh.TerminalModes{
-		ssh.ECHO:          1,
-		ssh.TTY_OP_ISPEED: 14400,
-		ssh.TTY_OP_OSPEED: 14400,
-	}
-
-	// Request PTY
-	p.logger.Info("Requesting PTY", map[string]interface{}{"target": target.Hostname})
-	if err := session.RequestPty("xterm-256color", 40, 80, modes); err != nil {
-		return fmt.Errorf("failed to request PTY: %w", err)
-	}
-
-	// Set up pipes
-	stdin, err := session.StdinPipe()
+	// Negotiate Session Type
+	sessionMode, execCmd, err := clientConn.NegotiateSession()
 	if err != nil {
-		return fmt.Errorf("failed to get stdin pipe: %w", err)
+		return fmt.Errorf("failed to negotiate session: %w", err)
 	}
 
-	stdout, err := session.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("failed to get stdout pipe: %w", err)
-	}
+	var stdin io.WriteCloser
+	var stdout, stderr io.Reader
 
-	stderr, err := session.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("failed to get stderr pipe: %w", err)
-	}
+	if sessionMode == ModeShell {
+		// --- SHELL MODE ---
+		// Set up terminal modes
+		modes := ssh.TerminalModes{
+			ssh.ECHO:          1,
+			ssh.TTY_OP_ISPEED: 14400,
+			ssh.TTY_OP_OSPEED: 14400,
+		}
 
-	// Start shell
-	p.logger.Info("Starting shell", map[string]interface{}{"target": target.Hostname})
-	if err := session.Shell(); err != nil {
-		return fmt.Errorf("failed to start shell: %w", err)
+		// Request PTY
+		p.logger.Info("Requesting PTY", map[string]interface{}{"target": target.Hostname})
+		if err := session.RequestPty("xterm-256color", 40, 80, modes); err != nil {
+			return fmt.Errorf("failed to request PTY: %w", err)
+		}
+
+		// Set up pipes
+		stdin, err = session.StdinPipe()
+		if err != nil {
+			return fmt.Errorf("failed to get stdin pipe: %w", err)
+		}
+
+		stdout, err = session.StdoutPipe()
+		if err != nil {
+			return fmt.Errorf("failed to get stdout pipe: %w", err)
+		}
+
+		stderr, err = session.StderrPipe()
+		if err != nil {
+			return fmt.Errorf("failed to get stderr pipe: %w", err)
+		}
+
+		// Start shell
+		p.logger.Info("Starting shell", map[string]interface{}{"target": target.Hostname})
+		if err := session.Shell(); err != nil {
+			return fmt.Errorf("failed to start shell: %w", err)
+		}
+		p.logger.Info("Shell started", map[string]interface{}{"target": target.Hostname})
+
+		// continue to existing shell logic...
+	} else {
+		// --- EXEC MODE ---
+		p.logger.Info("Starting exec session", map[string]interface{}{"target": target.Hostname, "cmd": execCmd})
+
+		// Set up pipes
+		stdin, err = session.StdinPipe()
+		if err != nil {
+			return fmt.Errorf("failed to get stdin pipe: %w", err)
+		}
+		stdout, err = session.StdoutPipe()
+		if err != nil {
+			return fmt.Errorf("failed to get stdout pipe: %w", err)
+		}
+		stderr, err = session.StderrPipe()
+		if err != nil {
+			return fmt.Errorf("failed to get stderr pipe: %w", err)
+		}
+
+		// Start Exec
+		if err := session.Start(execCmd); err != nil {
+			return fmt.Errorf("failed to start exec command: %w", err)
+		}
 	}
-	p.logger.Info("Shell started", map[string]interface{}{"target": target.Hostname})
 
 	// Set up recording if enabled
 	var recWriter io.Writer
@@ -273,256 +329,282 @@ func (p *Proxy) Handle(
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer stdin.Close()           // Close SSH stdin when WebSocket closes
-		defer close(clientClosedChan) // Signal that WebSocket closed
-		p.logger.Info("Starting Client -> SSH loop with AI Interceptor")
+		defer stdin.Close() // Close SSH stdin when WebSocket closes
+		// do not close clientClosedChan here, as it triggers session kill
 
-		// AI Interceptor State
-		var inputBuffer []byte
-		inAIHeader := true // True if we are at start of line
-		aiMode := "none"
+		if sessionMode == ModeShell {
+			p.logger.Info("Starting Client -> SSH loop with AI Interceptor")
 
-		resetInterceptor := func() {
-			inputBuffer = nil
-			inAIHeader = true
-			inAIHeader = true
-			aiMode = "none"
-		}
-		resetInterceptor()
+			// AI Interceptor State
+			var inputBuffer []byte
+			inAIHeader := true // True if we are at start of line
+			aiMode := "none"
 
-		for {
-			msg, err := clientConn.ReadData()
-			if err != nil {
-				// We assume any error here is a close or failure
-				p.logger.Info("Client read error or close", map[string]interface{}{"error": err.Error()})
-				return
+			resetInterceptor := func() {
+				inputBuffer = nil
+				inAIHeader = true
+				inAIHeader = true
+				aiMode = "none"
 			}
+			resetInterceptor()
 
-			// Handle Control Messages
-			if msg.Type == MsgTypeResize {
-				p.HandleResize(session, msg.Cols, msg.Rows)
-				continue
-			} else if msg.Type == MsgTypeUpload {
-				p.logger.Info("File upload received", map[string]interface{}{"name": msg.Name})
-
-				// Sanitize filename
-				name := msg.Name
-				if idx := strings.LastIndexAny(name, "/\\"); idx != -1 {
-					name = name[idx+1:]
+			for {
+				msg, err := clientConn.ReadData()
+				if err != nil {
+					// We assume any error here is a close or failure
+					p.logger.Info("Client read error or close", map[string]interface{}{"error": err.Error()})
+					return
 				}
 
-				var cmd string
-				if osContext.Family == "windows" {
-					cmd = fmt.Sprintf("[IO.File]::WriteAllBytes('%s', [Convert]::FromBase64String('%s')); Write-Host 'File uploaded: %s'\r",
-						name, msg.Content, name)
-				} else {
-					cmd = fmt.Sprintf("echo '%s' | base64 -d > '%s'; echo 'File uploaded: %s'\n",
-						msg.Content, name, name)
-				}
+				// Handle Control Messages
+				if msg.Type == MsgTypeResize {
+					p.HandleResize(session, msg.Cols, msg.Rows)
+					continue
+				} else if msg.Type == MsgTypeUpload {
+					p.logger.Info("File upload received", map[string]interface{}{"name": msg.Name})
 
-				stdin.Write([]byte(cmd))
-				continue
-			}
-
-			// Must be stdin data
-			data := msg.Data
-			if len(data) == 0 {
-				continue
-			}
-
-			// --- INTERCEPTION LOGIC ---
-
-			// Check for new line in this data packet to maintain state
-			// We also treat Ctrl+C (3) and Ctrl+L (12) as "newlines" because they reset the prompt context
-			hasNewline := bytes.Contains(data, []byte{13}) ||
-				bytes.Contains(data, []byte{10}) ||
-				bytes.Contains(data, []byte{3}) ||
-				bytes.Contains(data, []byte{12})
-
-			// 1. Trigger Detection
-			// Only check for trigger if we are at the start of a line and AI is not already active
-			if aiMode == "none" && inAIHeader && len(data) > 0 {
-				if data[0] == '!' {
-					aiMode = "command"
-					inAIHeader = false
-				} else if data[0] == '@' {
-					// Immediate System Info Trigger
-					// We do not enter a buffering mode, we just execute and reset.
-					// But we must consume this character so it doesn't go to SSH.
-
-					// Format Info
-					infoMsg := fmt.Sprintf("\r\n\033[36m--- System Context ---\033[0m\r\n"+
-						"Family: %s\r\nDistro: %s\r\nUser: %s\r\nRoles: %v\r\nTools: %v\r\n"+
-						"\033[36m----------------------\033[0m\r\n",
-						osContext.Family, osContext.Distro, osContext.User, osContext.Roles, osContext.Tools)
-
-					// Local Echo Info
-					clientConn.WriteData([]byte(infoMsg))
-					clientConn.WriteData([]byte("\r\n")) // Extra newline
-
-					// We consumed the @ stroke.
-					// We should probably reset to a clean prompt state or just let user type.
-					// But the user physically typed '@', and we intercepted it.
-					// The cursor is technically past output now.
-					// Let's just reset interceptor and NOT forward '@'
-					resetInterceptor()
-					continue // output processed, skip forwarding
-
-				} else if data[0] == '?' {
-					aiMode = "error"
-					inAIHeader = false
-				}
-			}
-
-			// 2. Routing
-			if aiMode != "none" {
-				// --- AI MODE ---
-
-				// Handle Newline (Trigger Execution)
-				nlIndex := -1
-				if idx := bytes.IndexByte(data, 13); idx >= 0 {
-					nlIndex = idx
-				} else if idx := bytes.IndexByte(data, 10); idx >= 0 {
-					nlIndex = idx
-				}
-
-				if nlIndex >= 0 {
-					// Found newline!
-					// 1. Append data UP TO newline to buffer
-					inputBuffer = append(inputBuffer, data[:nlIndex]...)
-
-					// 2. Echo data UP TO newline (suppress the newline itself)
-					clientConn.WriteData(data[:nlIndex])
-
-					// Execute AI Action
-					query := string(inputBuffer)
-					p.logger.Info("AI Trigger detected", map[string]interface{}{"mode": aiMode, "query": query})
-
-					// 3. Visual Cleanup (Erase query from terminal)
-					eraseSeq := bytes.Repeat([]byte("\b \b"), len(inputBuffer)+1) // +1 for trigger char
-					clientConn.WriteData(eraseSeq)
-
-					if aiMode == "command" {
-						// --- COMMAND GENERATION (!) ---
-						suggestion, err := p.aiService.GenerateCommand(ctx, query, osContext)
-						if err != nil {
-							suggestion = fmt.Sprintf("# AI Error: %v", err)
-						}
-						// Inject
-						stdin.Write([]byte(suggestion))
-
-					} else if aiMode == "error" {
-						// --- ERROR ANALYSIS (?) ---
-						// Parse optional number
-						lineCount := 20 // default
-						queryTrim := strings.TrimSpace(query)
-						if _, err := fmt.Sscanf(queryTrim, "%d", &lineCount); err == nil {
-							// Check bounds
-							if lineCount < 10 {
-								lineCount = 10
-							}
-							if lineCount > 200 {
-								lineCount = 200
-							}
-						}
-
-						// Get capture
-						p.bufferMutex.Lock()
-						totalLines := len(p.outputBuffer)
-						start := totalLines - lineCount
-						if start < 0 {
-							start = 0
-						}
-						captured := make([]string, len(p.outputBuffer[start:]))
-						copy(captured, p.outputBuffer[start:])
-						p.bufferMutex.Unlock()
-
-						// Call AI
-						analysis, err := p.aiService.AnalyzeError(ctx, query, captured, osContext)
-						if err != nil {
-							analysis = fmt.Sprintf("\r\n\033[31mAI Error: %v\033[0m", err)
-						} else {
-							// Colorize/Format analysis
-							analysis = fmt.Sprintf("\r\n\033[33m%s\033[0m\r\n", analysis)
-						}
-
-						// Local Echo result (do not inject to STDIN)
-						clientConn.WriteData([]byte(analysis))
-						// We probably want to restore prompt?
-						// Current flow: user typed `? 50<ENTER>`, we erased it.
-						// Then we printed huge block.
-						// The prompt is likely still there visually but maybe covered?
-						// Actually since we erased `? 50`, the cursor is back at prompt start.
-						// So printing analysis PUSHES the prompt down or overwrites?
-						// Standard terminal behavior: printing \r\n moves validly.
-						// We should probably print a fresh empty line or suggestion.
-						// For error analysis, we just show output.
-						// The user will likely have to hit enter to get a new prompt from shell.
+					// Sanitize filename
+					name := msg.Name
+					if idx := strings.LastIndexAny(name, "/\\"); idx != -1 {
+						name = name[idx+1:]
 					}
 
-					// Reset
-					resetInterceptor()
+					var cmd string
+					if osContext.Family == "windows" {
+						cmd = fmt.Sprintf("[IO.File]::WriteAllBytes('%s', [Convert]::FromBase64String('%s')); Write-Host 'File uploaded: %s'\r",
+							name, msg.Content, name)
+					} else {
+						cmd = fmt.Sprintf("echo '%s' | base64 -d > '%s'; echo 'File uploaded: %s'\n",
+							msg.Content, name, name)
+					}
 
-					// Note: We ignore any data AFTER the newline
+					stdin.Write([]byte(cmd))
 					continue
 				}
 
-				// No newline, just buffering
-				inputBuffer = append(inputBuffer, data...)
-
-				// LOCAL ECHO (required since we blocked server echo)
-				clientConn.WriteData(data)
-
-				// Check for Backspace (only if no newline was handled)
-				if bytes.Contains(data, []byte{127}) {
-					bsCount := bytes.Count(data, []byte{127})
-					for i := 0; i < bsCount; i++ {
-						if len(inputBuffer) > 0 {
-							inputBuffer = inputBuffer[:len(inputBuffer)-1]
-						}
-						// Remove the char before it (if any recorded)
-						// Note: inputBuffer contains the BS characters too, so we removed BS, now remove char
-						if len(inputBuffer) > 0 {
-							inputBuffer = inputBuffer[:len(inputBuffer)-1]
-						}
-
-						// Visual backspace
-						clientConn.WriteData([]byte("\b \b"))
-					}
-
-					// If buffer is empty (user backspaced everything including trigger), treat as reset?
-					if len(inputBuffer) == 0 {
-						resetInterceptor()
-					}
+				// Must be stdin data
+				data := msg.Data
+				if len(data) == 0 {
+					continue
 				}
 
-			} else {
-				// --- PASSTHROUGH MODE ---
-				// Allow data to flow to SSH stdin
+				// --- INTERCEPTION LOGIC ---
 
-				// Update header state for next packet
-				if hasNewline {
-					inAIHeader = true
-				} else {
-					// If we processed some data and it didn't have a newline, we are definitely not at header anymore using this simple logic.
-					// However, if data was empty (unlikely given len check above), state shouldn't change.
-					if len(data) > 0 {
+				// Check for new line in this data packet to maintain state
+				// We also treat Ctrl+C (3) and Ctrl+L (12) as "newlines" because they reset the prompt context
+				hasNewline := bytes.Contains(data, []byte{13}) ||
+					bytes.Contains(data, []byte{10}) ||
+					bytes.Contains(data, []byte{3}) ||
+					bytes.Contains(data, []byte{12})
+
+				// 1. Trigger Detection
+				// Only check for trigger if we are at the start of a line and AI is not already active
+				if aiMode == "none" && inAIHeader && len(data) > 0 {
+					if data[0] == '!' {
+						aiMode = "command"
+						inAIHeader = false
+					} else if data[0] == '@' {
+						// Immediate System Info Trigger
+						// We do not enter a buffering mode, we just execute and reset.
+						// But we must consume this character so it doesn't go to SSH.
+
+						// Format Info
+						infoMsg := fmt.Sprintf("\r\n\033[36m--- System Context ---\033[0m\r\n"+
+							"Family: %s\r\nDistro: %s\r\nUser: %s\r\nRoles: %v\r\nTools: %v\r\n"+
+							"\033[36m----------------------\033[0m\r\n",
+							osContext.Family, osContext.Distro, osContext.User, osContext.Roles, osContext.Tools)
+
+						// Local Echo Info
+						clientConn.WriteData([]byte(infoMsg))
+						clientConn.WriteData([]byte("\r\n")) // Extra newline
+
+						// We consumed the @ stroke.
+						// We should probably reset to a clean prompt state or just let user type.
+						// But the user physically typed '@', and we intercepted it.
+						// The cursor is technically past output now.
+						// Let's just reset interceptor and NOT forward '@'
+						resetInterceptor()
+						continue // output processed, skip forwarding
+
+					} else if data[0] == '?' {
+						aiMode = "error"
 						inAIHeader = false
 					}
 				}
 
-				bytesSent += int64(len(data))
+				// 2. Routing
+				if aiMode != "none" {
+					// --- AI MODE ---
 
-				// Audit: Check for Encoded Commands (Ansible/PowerShell)
-				p.detectAndLogEncodedCommand(data)
+					// Handle Newline (Trigger Execution)
+					nlIndex := -1
+					if idx := bytes.IndexByte(data, 13); idx >= 0 {
+						nlIndex = idx
+					} else if idx := bytes.IndexByte(data, 10); idx >= 0 {
+						nlIndex = idx
+					}
 
-				if _, err := stdin.Write(data); err != nil {
-					p.logger.Error("Failed to write to SSH stdin", map[string]interface{}{"error": err.Error()})
+					if nlIndex >= 0 {
+						// Found newline!
+						// 1. Append data UP TO newline to buffer
+						inputBuffer = append(inputBuffer, data[:nlIndex]...)
+
+						// 2. Echo data UP TO newline (suppress the newline itself)
+						clientConn.WriteData(data[:nlIndex])
+
+						// Execute AI Action
+						query := string(inputBuffer)
+						p.logger.Info("AI Trigger detected", map[string]interface{}{"mode": aiMode, "query": query})
+
+						// 3. Visual Cleanup (Erase query from terminal)
+						eraseSeq := bytes.Repeat([]byte("\b \b"), len(inputBuffer)+1) // +1 for trigger char
+						clientConn.WriteData(eraseSeq)
+
+						if aiMode == "command" {
+							// --- COMMAND GENERATION (!) ---
+							suggestion, err := p.aiService.GenerateCommand(ctx, query, osContext)
+							if err != nil {
+								suggestion = fmt.Sprintf("# AI Error: %v", err)
+							}
+							// Inject
+							stdin.Write([]byte(suggestion))
+
+						} else if aiMode == "error" {
+							// --- ERROR ANALYSIS (?) ---
+							// Parse optional number
+							lineCount := 20 // default
+							queryTrim := strings.TrimSpace(query)
+							if _, err := fmt.Sscanf(queryTrim, "%d", &lineCount); err == nil {
+								// Check bounds
+								if lineCount < 10 {
+									lineCount = 10
+								}
+								if lineCount > 200 {
+									lineCount = 200
+								}
+							}
+
+							// Get capture
+							p.bufferMutex.Lock()
+							totalLines := len(p.outputBuffer)
+							start := totalLines - lineCount
+							if start < 0 {
+								start = 0
+							}
+							captured := make([]string, len(p.outputBuffer[start:]))
+							copy(captured, p.outputBuffer[start:])
+							p.bufferMutex.Unlock()
+
+							// Call AI
+							analysis, err := p.aiService.AnalyzeError(ctx, query, captured, osContext)
+							if err != nil {
+								analysis = fmt.Sprintf("\r\n\033[31mAI Error: %v\033[0m", err)
+							} else {
+								// Colorize/Format analysis
+								analysis = fmt.Sprintf("\r\n\033[33m%s\033[0m\r\n", analysis)
+							}
+
+							// Local Echo result (do not inject to STDIN)
+							clientConn.WriteData([]byte(analysis))
+							// We probably want to restore prompt?
+							// Current flow: user typed `? 50<ENTER>`, we erased it.
+							// Then we printed huge block.
+							// The prompt is likely still there visually but maybe covered?
+							// Actually since we erased `? 50`, the cursor is back at prompt start.
+							// So printing analysis PUSHES the prompt down or overwrites?
+							// Standard terminal behavior: printing \r\n moves validly.
+							// We should probably print a fresh empty line or suggestion.
+							// For error analysis, we just show output.
+							// The user will likely have to hit enter to get a new prompt from shell.
+						}
+
+						// Reset
+						resetInterceptor()
+
+						// Note: We ignore any data AFTER the newline
+						continue
+					}
+
+					// No newline, just buffering
+					inputBuffer = append(inputBuffer, data...)
+
+					// LOCAL ECHO (required since we blocked server echo)
+					clientConn.WriteData(data)
+
+					// Check for Backspace (only if no newline was handled)
+					if bytes.Contains(data, []byte{127}) {
+						bsCount := bytes.Count(data, []byte{127})
+						for i := 0; i < bsCount; i++ {
+							if len(inputBuffer) > 0 {
+								inputBuffer = inputBuffer[:len(inputBuffer)-1]
+							}
+							// Remove the char before it (if any recorded)
+							// Note: inputBuffer contains the BS characters too, so we removed BS, now remove char
+							if len(inputBuffer) > 0 {
+								inputBuffer = inputBuffer[:len(inputBuffer)-1]
+							}
+
+							// Visual backspace
+							clientConn.WriteData([]byte("\b \b"))
+						}
+
+						// If buffer is empty (user backspaced everything including trigger), treat as reset?
+						if len(inputBuffer) == 0 {
+							resetInterceptor()
+						}
+					}
+
+				} else {
+					// --- PASSTHROUGH MODE ---
+					// Allow data to flow to SSH stdin
+
+					// Update header state for next packet
+					if hasNewline {
+						inAIHeader = true
+					} else {
+						// If we processed some data and it didn't have a newline, we are definitely not at header anymore using this simple logic.
+						// However, if data was empty (unlikely given len check above), state shouldn't change.
+						if len(data) > 0 {
+							inAIHeader = false
+						}
+					}
+
+					bytesSent += int64(len(data))
+
+					// Audit: Check for Encoded Commands (Ansible/PowerShell)
+					p.detectAndLogEncodedCommand(data)
+
+					if _, err := stdin.Write(data); err != nil {
+						p.logger.Error("Failed to write to SSH stdin", map[string]interface{}{"error": err.Error()})
+						return
+					}
+				}
+
+				// Loop continues to read next packet
+			}
+		} else {
+			// --- EXEC MODE Direct Copy ---
+			p.logger.Info("Starting Client -> SSH loop (Exec Mode)")
+			for {
+				msg, err := clientConn.ReadData()
+				if err != nil {
+					if err == io.EOF {
+						// EOF is normal for Exec (e.g. end of input for dd)
+						// Close stdin to signal EOF to remote process, but KEEP session open
+						p.logger.Info("Client sent EOF (Exec Mode)")
+						stdin.Close()
+						return
+					}
+					p.logger.Error("Client read error (Exec Mode)", map[string]interface{}{"error": err.Error()})
 					return
 				}
+				if msg.Data != nil {
+					if _, err := stdin.Write(msg.Data); err != nil {
+						p.logger.Error("Failed to write to SSH stdin (Exec Mode)", map[string]interface{}{"error": err.Error()})
+						return
+					}
+				}
 			}
-
-			// Loop continues to read next packet
 		}
 	}()
 
@@ -640,6 +722,22 @@ func (p *Proxy) Handle(
 		// SSH session ended - close WebSocket immediately to unblock goroutines
 		// SSH session ended - close Client connection immediately
 		p.logger.Info("SSH session ended, closing Client connection")
+
+		// Calculate Exit Status
+		var exitStatus uint32 = 0
+		if err != nil {
+			if exitErr, ok := err.(*ssh.ExitError); ok {
+				exitStatus = uint32(exitErr.ExitStatus())
+			} else {
+				exitStatus = 1 // General error
+			}
+		}
+
+		// Send Exit Status to Client
+		if err := clientConn.SendExitStatus(exitStatus); err != nil {
+			p.logger.Error("Failed to send exit status", map[string]interface{}{"error": err.Error()})
+		}
+
 		// We could send a close message if protocol supports it
 		// For now just close underlying transport
 		clientConn.Close()

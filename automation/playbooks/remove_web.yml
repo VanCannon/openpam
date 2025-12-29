@@ -1,0 +1,20 @@
+---
+- name: Completely Remove Apache Web Server
+  hosts: web_servers
+  become: yes
+  tasks:
+    - name: Ensure Apache service is stopped
+      service:
+        name: apache2
+        state: stopped
+        enabled: no
+
+    - name: Uninstall Apache2 package
+      apt:
+        name: apache2
+        state: absent
+        purge: yes  # This removes config files too, not just the binary
+
+    - name: Remove unused dependencies
+      apt:
+        autoremove: yes
